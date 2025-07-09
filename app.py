@@ -8,7 +8,6 @@ import gc
 st.set_page_config(page_title="Dubai Real Estate Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
-# === Load main data ===
 @st.cache_data
 def load_data():
     file_path = "transactions.parquet"
@@ -16,16 +15,17 @@ def load_data():
         st.info("⬇️ Downloading full dataset from Drive...")
         gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
     df = pd.read_parquet(file_path)
+
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
+    df["actual_worth"] = pd.to_numeric(df["actual_worth"], errors="coerce")
+    df = df.dropna(subset=["actual_worth", "instance_date"])
+
+    # Downcast numeric columns
+    df["actual_worth"] = pd.to_numeric(df["actual_worth"], downcast="float")
+    df["transaction_id"] = pd.to_numeric(df["transaction_id"], errors="coerce", downcast="integer")
     return df
 
-# === Load Pattern Matrix ===
-@st.cache_data
-def load_patterns():
-    return pd.read_csv("PatternMatrix.csv")
-
 df = load_data()
-patterns_df = load_patterns()
 
 # === Sidebar Filter Form ===
 st.sidebar.header("🔍 Property Filters")
@@ -41,23 +41,27 @@ with st.sidebar.form("filters_form"):
 if submit:
     with st.spinner("🔎 Filtering and analyzing data..."):
         gc.collect()
-        filtered = df.copy()
+        query_parts = []
         if area:
-            filtered = filtered[filtered["area_name_en"].isin(area)]
+            query_parts.append(f"area_name_en in {area}")
         if prop_type:
-            filtered = filtered[filtered["property_type_en"].isin(prop_type)]
+            query_parts.append(f"property_type_en in {prop_type}")
         if bedrooms:
-            filtered = filtered[filtered["rooms_en"].isin(bedrooms)]
-        filtered = filtered[filtered["actual_worth"] <= budget]
-        filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
+            query_parts.append(f"rooms_en in {bedrooms}")
+        query_parts.append(f"actual_worth <= {budget}")
+        query_parts.append(f"instance_date >= '{pd.to_datetime(date_range[0])}' and instance_date <= '{pd.to_datetime(date_range[1])}'")
+
+        query = " and ".join(query_parts)
+        filtered = df.query(query)
 
         if len(filtered) > 300_000:
-            st.warning("🚨 Too many results. Please narrow your filters.")
+            st.warning("🚨 Too many results. Please narrow your filters (area, type, budget).")
             st.stop()
 
         st.success(f"✅ {len(filtered)} properties matched.")
-        st.subheader("📊 Market Summary Metrics")
 
+        # === Metrics Only, No DataFrame ===
+        st.subheader("📊 Market Summary Metrics")
         grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
             "actual_worth": "mean",
             "transaction_id": "count"
@@ -77,26 +81,6 @@ if submit:
             col1.metric("📈 Volume QoQ", f"{qoq_volume:.1f}%")
             col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
             col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
-
-            # === Simple Pattern Matching ===
-            def classify(value):
-                return "Up" if value > 0 else "Down" if value < 0 else "Flat"
-
-            pattern_key = f"{classify(qoq_price)}-{classify(yoy_price)}-{classify(qoq_volume)}-{classify(yoy_volume)}"
-            matched = patterns_df[patterns_df["PatternID"] == pattern_key]
-
-            st.markdown("---")
-            st.subheader("🧠 Pattern Insight & Recommendation")
-
-            if not matched.empty:
-                insight = matched["Insight"].values[0]
-                reco = matched["Recommendation"].values[0]
-                st.markdown(f"**🧩 Detected Pattern**: `{pattern_key}`")
-                st.info(insight)
-                st.success(reco)
-            else:
-                st.warning(f"No pattern found for: `{pattern_key}`")
-
         else:
             st.warning("Not enough quarterly data for trend metrics.")
 

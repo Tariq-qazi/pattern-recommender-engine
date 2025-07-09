@@ -1,25 +1,27 @@
 import streamlit as st
 import pandas as pd
 import gdown
+import os
 
 st.set_page_config(page_title="Dubai Real Estate Pattern Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
-# === Step 1: Load data from Google Drive ===
+# === Step 1: Load data from Google Drive and cache locally ===
 @st.cache_data
 def load_data():
-    file_id = "1R71kyvSYgRSMl8o4bfXhV9FH1N50D2uJ"
-    url = f"https://drive.google.com/uc?id={file_id}"
-    output = "transactions.xlsx"
-    gdown.download(url, output, quiet=False)
-    df = pd.read_excel(output, engine="openpyxl")
+    file_path = "transactions.xlsx"
+    if not os.path.exists(file_path):
+        st.info("Downloading data from Google Drive...")
+        url = "https://drive.google.com/uc?id=1R71kyvSYgRSMl8o4bfXhV9FH1N50D2uJ"
+        gdown.download(url, file_path, quiet=False)
+    df = pd.read_excel(file_path, engine="openpyxl")
     return df
 
 # === Step 2: Load and filter the data ===
 df = load_data()
 
 if df is not None:
-    st.success("✅ Excel loaded from Google Drive")
+    st.success("✅ Excel loaded from local cache")
 
     # Sidebar Filters
     st.sidebar.header("🔍 Filter Properties")

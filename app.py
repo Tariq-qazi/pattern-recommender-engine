@@ -9,7 +9,6 @@ st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
 # === Load Parquet from Google Drive ===
 @st.cache_data
-
 def load_data():
     file_path = "transactions.parquet"
     if not os.path.exists(file_path):
@@ -19,10 +18,9 @@ def load_data():
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return df
 
-# === Load the data once ===
 df = load_data()
 
-# === Sidebar Filter Form ===
+# === Sidebar Filters ===
 st.sidebar.header("🔍 Property Filters")
 with st.sidebar.form("filters_form"):
     area = st.multiselect("Area", sorted(df["area_name_en"].dropna().unique()))
@@ -32,7 +30,7 @@ with st.sidebar.form("filters_form"):
     date_range = st.date_input("Transaction Date Range", [df["instance_date"].min(), df["instance_date"].max()])
     submit = st.form_submit_button("Run Analysis")
 
-# === After submission ===
+# === Main Logic ===
 if submit:
     with st.spinner("🔎 Filtering and analyzing data..."):
         filtered = df.copy()
@@ -43,13 +41,17 @@ if submit:
         if bedrooms:
             filtered = filtered[filtered["rooms_en"].isin(bedrooms)]
         filtered = filtered[filtered["actual_worth"] <= budget]
-        filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
+        filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & 
+                            (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
 
         st.success(f"✅ {len(filtered)} properties matched.")
 
         # === Metrics ===
         st.subheader("📊 Market Summary Metrics")
-        grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({"actual_worth": "mean", "transaction_id": "count"}).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
+        grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
+            "actual_worth": "mean", 
+            "transaction_id": "count"
+        }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
 
         if len(grouped) >= 2:
             latest, previous = grouped.iloc[-1], grouped.iloc[-2]
@@ -68,12 +70,11 @@ if submit:
         else:
             st.warning("Not enough quarterly data for trend metrics.")
 
-        # === Preview Table (limit size) ===
-        if len(filtered) < 5000:
-            st.subheader("📋 Filtered Transactions")
-            st.dataframe(filtered.head(1000))
-        else:
-            st.info("Too many results to preview. Please narrow filters.")
-
+        # === Optional: View Data Preview ===
+        if st.button("Show Filtered Transactions Table"):
+            if len(filtered) < 5000:
+                st.dataframe(filtered.head(1000))
+            else:
+                st.info("Too many results to preview. Please narrow filters.")
 else:
-    st.warning("Use the left filters and click 'Run Analysis' to begin.")
+    st.info("🎯 Use the filters and click 'Run Analysis' to start.")

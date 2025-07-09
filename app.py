@@ -8,6 +8,7 @@ import gc
 st.set_page_config(page_title="Dubai Real Estate Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
+# === Load main data ===
 @st.cache_data
 def load_data():
     file_path = "transactions.parquet"
@@ -18,7 +19,13 @@ def load_data():
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return df
 
+# === Load Pattern Matrix ===
+@st.cache_data
+def load_patterns():
+    return pd.read_csv("PatternMatrix.csv")
+
 df = load_data()
+patterns_df = load_patterns()
 
 # === Sidebar Filter Form ===
 st.sidebar.header("🔍 Property Filters")
@@ -45,13 +52,12 @@ if submit:
         filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
 
         if len(filtered) > 300_000:
-            st.warning("🚨 Too many results. Please narrow your filters (area, type, budget).")
+            st.warning("🚨 Too many results. Please narrow your filters.")
             st.stop()
 
         st.success(f"✅ {len(filtered)} properties matched.")
-
-        # === Metrics Only, No DataFrame ===
         st.subheader("📊 Market Summary Metrics")
+
         grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
             "actual_worth": "mean",
             "transaction_id": "count"
@@ -71,6 +77,26 @@ if submit:
             col1.metric("📈 Volume QoQ", f"{qoq_volume:.1f}%")
             col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
             col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
+
+            # === Simple Pattern Matching ===
+            def classify(value):
+                return "Up" if value > 0 else "Down" if value < 0 else "Flat"
+
+            pattern_key = f"{classify(qoq_price)}-{classify(yoy_price)}-{classify(qoq_volume)}-{classify(yoy_volume)}"
+            matched = patterns_df[patterns_df["PatternID"] == pattern_key]
+
+            st.markdown("---")
+            st.subheader("🧠 Pattern Insight & Recommendation")
+
+            if not matched.empty:
+                insight = matched["Insight"].values[0]
+                reco = matched["Recommendation"].values[0]
+                st.markdown(f"**🧩 Detected Pattern**: `{pattern_key}`")
+                st.info(insight)
+                st.success(reco)
+            else:
+                st.warning(f"No pattern found for: `{pattern_key}`")
+
         else:
             st.warning("Not enough quarterly data for trend metrics.")
 

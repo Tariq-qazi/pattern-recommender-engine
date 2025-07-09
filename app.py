@@ -15,17 +15,17 @@ def load_data():
         st.info("⬇️ Downloading full dataset from Drive...")
         gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
     df = pd.read_parquet(file_path)
-
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
-    df["actual_worth"] = pd.to_numeric(df["actual_worth"], errors="coerce")
-    df = df.dropna(subset=["actual_worth", "instance_date"])
-
-    # Downcast numeric columns
-    df["actual_worth"] = pd.to_numeric(df["actual_worth"], downcast="float")
-    df["transaction_id"] = pd.to_numeric(df["transaction_id"], errors="coerce", downcast="integer")
     return df
 
+@st.cache_data
+def load_pattern_matrix():
+    pattern_url = "https://raw.githubusercontent.com/tareqanalytics/serdal-assets/main/PatternMatrix.csv"
+    pattern_df = pd.read_csv(pattern_url)
+    return pattern_df
+
 df = load_data()
+pattern_matrix = load_pattern_matrix()
 
 # === Sidebar Filter Form ===
 st.sidebar.header("🔍 Property Filters")
@@ -41,18 +41,15 @@ with st.sidebar.form("filters_form"):
 if submit:
     with st.spinner("🔎 Filtering and analyzing data..."):
         gc.collect()
-        query_parts = []
+        filtered = df.copy()
         if area:
-            query_parts.append(f"area_name_en in {area}")
+            filtered = filtered[filtered["area_name_en"].isin(area)]
         if prop_type:
-            query_parts.append(f"property_type_en in {prop_type}")
+            filtered = filtered[filtered["property_type_en"].isin(prop_type)]
         if bedrooms:
-            query_parts.append(f"rooms_en in {bedrooms}")
-        query_parts.append(f"actual_worth <= {budget}")
-        query_parts.append(f"instance_date >= '{pd.to_datetime(date_range[0])}' and instance_date <= '{pd.to_datetime(date_range[1])}'")
-
-        query = " and ".join(query_parts)
-        filtered = df.query(query)
+            filtered = filtered[filtered["rooms_en"].isin(bedrooms)]
+        filtered = filtered[filtered["actual_worth"] <= budget]
+        filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
 
         if len(filtered) > 300_000:
             st.warning("🚨 Too many results. Please narrow your filters (area, type, budget).")
@@ -81,8 +78,22 @@ if submit:
             col1.metric("📈 Volume QoQ", f"{qoq_volume:.1f}%")
             col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
             col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
+
+            # === Pattern Matching ===
+            st.subheader("🧠 Pattern-Based Recommendation")
+            pattern_match = pattern_matrix.copy()
+            pattern_match["score"] = (
+                abs(pattern_match["QoQ_Price"] - qoq_price) +
+                abs(pattern_match["YoY_Price"] - yoy_price) +
+                abs(pattern_match["QoQ_Volume"] - qoq_volume) +
+                abs(pattern_match["YoY_Volume"] - yoy_volume)
+            )
+            best_match = pattern_match.sort_values("score").iloc[0]
+
+            st.markdown(f"**🔎 Pattern ID:** {best_match['PatternID']}")
+            st.markdown(f"**🧠 Insight:** {best_match['Insight_Narrative']}")
+            st.markdown(f"**📢 Recommendation:** {best_match['Recommendation']}")
         else:
             st.warning("Not enough quarterly data for trend metrics.")
-
 else:
     st.info("🎯 Use the filters and click 'Run Analysis' to start.")

@@ -3,60 +3,52 @@ import pandas as pd
 import gdown
 import os
 
-st.set_page_config(page_title="🏙️ Dubai Real Estate Pattern Recommender", layout="wide")
+st.set_page_config(page_title="Dubai Real Estate Pattern Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
-# === Step 1: Load full parquet file from Google Drive (only once) ===
+# === Step 1: Load full data from Parquet ===
 @st.cache_data
 def load_data():
     file_path = "transactions_merged.parquet"
     if not os.path.exists(file_path):
-        st.info("Downloading large dataset from Google Drive...")
-        url = "https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI"
-        gdown.download(url, file_path, quiet=False)
-    df = pd.read_parquet(file_path)
-    return df
+        with st.spinner("🔁 Downloading full dataset from Google Drive..."):
+            url = "https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI"
+            gdown.download(url, file_path, quiet=False)
+    return pd.read_parquet(file_path)
 
-# === Step 2: Load ===
-df = load_data()
-st.success("✅ Full dataset loaded from cache")
+# === Step 2: Read dataset ===
+with st.spinner("📥 Loading data..."):
+    df = load_data()
 
-# === Step 3: Sidebar Filters ===
-st.sidebar.header("🔍 Filter Properties")
+if df is not None and not df.empty:
+    st.success("✅ Full Parquet dataset loaded successfully!")
 
-# Column mappings (based on your uploaded column headers)
-area_col = "area_name_en"
-prop_type_col = "property_type_en"
-bedroom_col = "rooms_en"
-price_col = "actual_worth"
+    # === Step 3: Sidebar filters ===
+    st.sidebar.header("🔍 Filter Properties")
 
-area = st.sidebar.multiselect("Area", options=sorted(df[area_col].dropna().unique()))
-prop_type = st.sidebar.multiselect("Property Type", options=sorted(df[prop_type_col].dropna().unique()))
-bedrooms = st.sidebar.multiselect("Bedrooms", options=sorted(df[bedroom_col].dropna().unique()))
-budget = st.sidebar.slider("Max Budget (AED)", 
-                           int(df[price_col].min()), 
-                           int(df[price_col].max()), 
-                           int(df[price_col].max()))
+    area = st.sidebar.multiselect("Area", sorted(df["area_name_en"].dropna().unique()))
+    prop_type = st.sidebar.multiselect("Property Type", sorted(df["property_type_en"].dropna().unique()))
+    bedrooms = st.sidebar.multiselect("Bedrooms", sorted(df["rooms_en"].dropna().unique()))
+    max_price = int(df["actual_worth"].dropna().max())
+    budget = st.sidebar.slider("Max Budget (AED)", 0, max_price, max_price)
 
-# === Step 4: Apply filters ===
-filtered = df.copy()
-if area:
-    filtered = filtered[filtered[area_col].isin(area)]
-if prop_type:
-    filtered = filtered[filtered[prop_type_col].isin(prop_type)]
-if bedrooms:
-    filtered = filtered[filtered[bedroom_col].isin(bedrooms)]
-filtered = filtered[filtered[price_col] <= budget]
+    # === Step 4: Apply filters ===
+    filtered = df.copy()
+    if area:
+        filtered = filtered[filtered["area_name_en"].isin(area)]
+    if prop_type:
+        filtered = filtered[filtered["property_type_en"].isin(prop_type)]
+    if bedrooms:
+        filtered = filtered[filtered["rooms_en"].isin(bedrooms)]
+    filtered = filtered[filtered["actual_worth"] <= budget]
 
-st.subheader(f"🗂️ Filtered Results: {len(filtered):,} properties")
-if len(filtered) == 0:
-    st.warning("❗ No matching properties found. Try adjusting your filters.")
+    # === Step 5: Display results ===
+    st.subheader(f"🗂️ Filtered Results: {len(filtered)} Properties")
+
+    if not filtered.empty:
+        st.dataframe(filtered.head(1000))  # Display only first 1000 rows
+    else:
+        st.warning("⚠️ No properties found for the selected filters.")
+
 else:
-    st.dataframe(filtered, use_container_width=True)
-
-    st.download_button(
-        label="📥 Download Filtered Data as CSV",
-        data=filtered.to_csv(index=False),
-        file_name="filtered_properties.csv",
-        mime="text/csv",
-    )
+    st.error("❌ Failed to load data or data is empty.")

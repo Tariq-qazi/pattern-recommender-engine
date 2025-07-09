@@ -8,7 +8,7 @@ st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
 @st.cache_data(show_spinner="📥 Loading real estate data...")
 def load_data():
-    file_path = "transactions.parquet"
+    file_path = "transactions_merged.parquet"
     if not os.path.exists(file_path):
         st.info("Downloading dataset from Google Drive...")
         url = "https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI"

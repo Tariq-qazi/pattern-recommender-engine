@@ -7,7 +7,6 @@ from datetime import datetime
 st.set_page_config(page_title="Dubai Real Estate Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
-# === Load Parquet from Google Drive ===
 @st.cache_data
 def load_data():
     file_path = "transactions.parquet"
@@ -20,7 +19,7 @@ def load_data():
 
 df = load_data()
 
-# === Sidebar Filters ===
+# === Sidebar Filter Form ===
 st.sidebar.header("🔍 Property Filters")
 with st.sidebar.form("filters_form"):
     area = st.multiselect("Area", sorted(df["area_name_en"].dropna().unique()))
@@ -30,7 +29,7 @@ with st.sidebar.form("filters_form"):
     date_range = st.date_input("Transaction Date Range", [df["instance_date"].min(), df["instance_date"].max()])
     submit = st.form_submit_button("Run Analysis")
 
-# === Main Logic ===
+# === After submission ===
 if submit:
     with st.spinner("🔎 Filtering and analyzing data..."):
         filtered = df.copy()
@@ -41,15 +40,14 @@ if submit:
         if bedrooms:
             filtered = filtered[filtered["rooms_en"].isin(bedrooms)]
         filtered = filtered[filtered["actual_worth"] <= budget]
-        filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & 
-                            (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
+        filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
 
         st.success(f"✅ {len(filtered)} properties matched.")
 
-        # === Metrics ===
+        # === Metrics Only, No DataFrame ===
         st.subheader("📊 Market Summary Metrics")
         grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
-            "actual_worth": "mean", 
+            "actual_worth": "mean",
             "transaction_id": "count"
         }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
 
@@ -70,11 +68,5 @@ if submit:
         else:
             st.warning("Not enough quarterly data for trend metrics.")
 
-        # === Optional: View Data Preview ===
-        if st.button("Show Filtered Transactions Table"):
-            if len(filtered) < 5000:
-                st.dataframe(filtered.head(1000))
-            else:
-                st.info("Too many results to preview. Please narrow filters.")
 else:
     st.info("🎯 Use the filters and click 'Run Analysis' to start.")

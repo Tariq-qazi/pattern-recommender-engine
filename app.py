@@ -2,22 +2,26 @@ import streamlit as st
 import pandas as pd
 import gdown
 import os
+import tempfile
 
 st.set_page_config(page_title="Dubai Real Estate Pattern Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
-# === Step 1: Load data from Google Drive and cache locally ===
 @st.cache_data
 def load_data():
-    file_path = "transactions_merged.parquet"
+    file_path = os.path.join(tempfile.gettempdir(), "transactions_merged.parquet")
     if not os.path.exists(file_path):
         st.info("⏬ Downloading dataset from Google Drive...")
         url = "https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI"
         gdown.download(url, file_path, quiet=False)
+    if not os.path.exists(file_path):
+        st.error("❌ File could not be loaded. Try again.")
+        st.stop()
     df = pd.read_parquet(file_path)
     df['instance_date'] = pd.to_datetime(df['instance_date'], errors='coerce')
-    df = df.dropna(subset=['instance_date'])  # remove invalid dates
+    df = df.dropna(subset=['instance_date'])
     return df
+
 
 df = load_data()
 

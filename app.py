@@ -7,6 +7,7 @@ from datetime import datetime
 st.set_page_config(page_title="Dubai Real Estate Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
+# === Load Parquet from Google Drive ===
 @st.cache_data
 def load_data():
     file_path = "transactions.parquet"
@@ -33,6 +34,7 @@ with st.sidebar.form("filters_form"):
 if submit:
     with st.spinner("🔎 Filtering and analyzing data..."):
         filtered = df.copy()
+
         if area:
             filtered = filtered[filtered["area_name_en"].isin(area)]
         if prop_type:
@@ -40,16 +42,36 @@ if submit:
         if bedrooms:
             filtered = filtered[filtered["rooms_en"].isin(bedrooms)]
         filtered = filtered[filtered["actual_worth"] <= budget]
-        filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
 
-        st.success(f"✅ {len(filtered)} properties matched.")
+        # Filter by date range
+        filtered = filtered[filtered["instance_date"].notna()]
+        filtered = filtered[
+            (filtered["instance_date"] >= pd.to_datetime(date_range[0])) &
+            (filtered["instance_date"] <= pd.to_datetime(date_range[1]))
+        ]
 
-        # === Metrics Only, No DataFrame ===
+        # Early exit if no results
+        if filtered.empty:
+            st.error("❌ No results match your filters.")
+            st.stop()
+
+        # Limit too-large sets
+        st.success(f"✅ {len(filtered):,} properties matched.")
+        if len(filtered) > 100000:
+            st.warning("⚠️ Too many results to compute trend metrics. Please narrow your filters.")
+            st.stop()
+
+        # === Metrics Only (no table) ===
         st.subheader("📊 Market Summary Metrics")
-        grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
-            "actual_worth": "mean",
-            "transaction_id": "count"
-        }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
+        grouped = (
+            filtered.groupby(pd.Grouper(key="instance_date", freq="Q"))
+            .agg({
+                "actual_worth": "mean",
+                "transaction_id": "count"
+            })
+            .rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"})
+            .dropna()
+        )
 
         if len(grouped) >= 2:
             latest, previous = grouped.iloc[-1], grouped.iloc[-2]
@@ -66,7 +88,7 @@ if submit:
             col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
             col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
         else:
-            st.warning("Not enough quarterly data for trend metrics.")
+            st.warning("⚠️ Not enough quarterly data for trend metrics.")
 
 else:
     st.info("🎯 Use the filters and click 'Run Analysis' to start.")

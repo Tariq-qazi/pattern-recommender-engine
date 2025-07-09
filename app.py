@@ -2,38 +2,37 @@ import streamlit as st
 import pandas as pd
 import gdown
 import os
-import tempfile
+from datetime import datetime
 
-st.set_page_config(page_title="Dubai Real Estate Pattern Recommender", layout="wide")
+st.set_page_config(page_title="Dubai Real Estate Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
+# === Load Parquet from Google Drive ===
 @st.cache_data
+
 def load_data():
-    file_path = os.path.join(tempfile.gettempdir(), "transactions_merged.parquet")
+    file_path = "transactions.parquet"
     if not os.path.exists(file_path):
-        st.info("⏬ Downloading dataset from Google Drive...")
-        url = "https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI"
-        gdown.download(url, file_path, quiet=False)
+        st.info("⬇️ Downloading full dataset from Drive...")
+        gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
     df = pd.read_parquet(file_path)
-    df['instance_date'] = pd.to_datetime(df['instance_date'], errors='coerce')
-    df = df.dropna(subset=['instance_date'])
+    df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return df
 
-# Step 1: Load file (but don’t run filters until user clicks)
-with st.spinner("Loading data..."):
-    df = load_data()
-    st.success("✅ Dataset loaded successfully.")
+# === Load the data ===
+df = load_data()
 
-# Step 2: Wait for user trigger
-run_app = st.button("🚀 Start Exploring & Filtering")
+# === Sidebar Form ===
+st.sidebar.header("🔍 Property Filters")
+with st.sidebar.form("filters_form"):
+    area = st.multiselect("Area", sorted(df["area_name_en"].dropna().unique()))
+    prop_type = st.multiselect("Property Type", sorted(df["property_type_en"].dropna().unique()))
+    bedrooms = st.multiselect("Bedrooms", sorted(df["rooms_en"].dropna().unique()))
+    budget = st.slider("Max Budget (AED)", int(df["actual_worth"].min()), int(df["actual_worth"].max()), int(df["actual_worth"].max()))
+    date_range = st.date_input("Transaction Date Range", [df["instance_date"].min(), df["instance_date"].max()])
+    submit = st.form_submit_button("Apply Filters")
 
-if run_app:
-    st.sidebar.header("🔍 Filter Properties")
-    area = st.sidebar.multiselect("Area", options=sorted(df["area_name_en"].dropna().unique()))
-    prop_type = st.sidebar.multiselect("Property Type", options=sorted(df["property_type_en"].dropna().unique()))
-    bedrooms = st.sidebar.multiselect("Bedrooms", options=sorted(df["rooms_en"].dropna().unique()))
-    budget = st.sidebar.slider("Max Budget (AED)", int(df["actual_worth"].min()), int(df["actual_worth"].max()), int(df["actual_worth"].max()))
-
+if submit:
     filtered = df.copy()
     if area:
         filtered = filtered[filtered["area_name_en"].isin(area)]
@@ -42,13 +41,37 @@ if run_app:
     if bedrooms:
         filtered = filtered[filtered["rooms_en"].isin(bedrooms)]
     filtered = filtered[filtered["actual_worth"] <= budget]
+    filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
 
-    st.subheader(f"🗂️ Filtered Results: {len(filtered)} Properties")
+    st.success(f"✅ {len(filtered)} properties matched.")
 
-    if len(filtered) > 0:
-        st.dataframe(filtered.sample(min(1000, len(filtered))))  # show sample only
+    # === Metrics ===
+    st.subheader("📊 Market Summary Metrics")
+    grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({"actual_worth": "mean", "transaction_id": "count"}).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
+
+    if len(grouped) >= 2:
+        latest, previous = grouped.iloc[-1], grouped.iloc[-2]
+        qoq_price = ((latest["avg_price"] - previous["avg_price"]) / previous["avg_price"]) * 100
+        qoq_volume = ((latest["volume"] - previous["volume"]) / previous["volume"]) * 100
+
+        year_ago = grouped.iloc[-5] if len(grouped) >= 5 else previous
+        yoy_price = ((latest["avg_price"] - year_ago["avg_price"]) / year_ago["avg_price"]) * 100
+        yoy_volume = ((latest["volume"] - year_ago["volume"]) / year_ago["volume"]) * 100
+
+        col1, col2 = st.columns(2)
+        col1.metric("🏷️ Price QoQ", f"{qoq_price:.1f}%")
+        col1.metric("📈 Volume QoQ", f"{qoq_volume:.1f}%")
+        col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
+        col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
     else:
-        st.warning("No matching properties found.")
+        st.warning("Not enough quarterly data for trend metrics.")
+
+    # === Preview Table (limit size) ===
+    if len(filtered) < 5000:
+        st.subheader("📋 Filtered Transactions")
+        st.dataframe(filtered.head(1000))
+    else:
+        st.info("Too many results to preview. Please narrow filters.")
 
 else:
-    st.info("Click the **Start** button above to explore properties.")
+    st.warning("Use the left filters and click 'Apply Filters' to begin.")

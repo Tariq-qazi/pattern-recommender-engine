@@ -177,7 +177,24 @@ if submit:
             st.markdown(f"**Average Price:** AED {avg_price:,.0f}")
             if price_per_sqm:
                 st.markdown(f"**Avg. Price/sqm:** AED {price_per_sqm:,.0f}")
-            st.line_chart(grouped["avg_price"].rename("Quarterly Avg Price"))
+            # Adaptive Y-axis line chart with matplotlib
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.plot(grouped.index, grouped["avg_price"], marker='o', linewidth=2, label="Avg Price")
+            ax.set_title("Quarterly Avg Price (AED)", fontsize=14)
+            ax.set_ylabel("AED", fontsize=12)
+            ax.set_xlabel("Quarter", fontsize=12)
+            ax.grid(True, linestyle="--", alpha=0.5)
+            
+            # Dynamic y-limits: small margin around min/max
+            ymin = grouped["avg_price"].min() * 0.98
+            ymax = grouped["avg_price"].max() * 1.02
+            ax.set_ylim(ymin, ymax)
+            
+            # Rotate x-axis for clarity
+            fig.autofmt_xdate()
+            
+            st.pyplot(fig)
+
 
         else:
             st.warning("Not enough quarterly data to calculate changes.")

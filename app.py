@@ -152,7 +152,7 @@ if submit:
             tag_yoy_vol = classify_change(yoy_volume)
             tag_offplan = classify_offplan(offplan_pct)
 
-            st.subheader("📊 Market Summary Tags")
+            st.subheader("📊 Market Summary Trends")
             col1, col2, col3 = st.columns(3)
             col1.metric("🏷️ Price QoQ", tag_qoq_price)
             col1.metric("🏷️ Price YoY", tag_yoy_price)

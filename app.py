@@ -17,7 +17,7 @@ def get_filter_metadata():
     if not os.path.exists(file_path):
         gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
     df = pd.read_parquet(file_path, columns=[
-        "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "offplan"
+        "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "reg_type_en", "transaction_id"
     ])
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return {
@@ -33,25 +33,28 @@ def get_filter_metadata():
 filters = get_filter_metadata()
 
 # =======================
-# 2. FILTER SIDEBAR
+# 2. SIDEBAR FILTERS
 # =======================
 st.sidebar.header("🔍 Property Filters")
 with st.sidebar.form("filters_form"):
     selected_areas = st.multiselect("Area", filters["areas"])
     selected_types = st.multiselect("Property Type", filters["types"])
     selected_rooms = st.multiselect("Bedrooms", filters["rooms"])
-    budget = st.slider("Max Budget (AED)", filters["min_price"], filters["max_price"], filters["max_price"])
-    date_range = st.date_input("Transaction Date Range", [filters["min_date"], filters["max_date"]])
+    budget = st.number_input("Max Budget (AED)", value=filters["max_price"], step=100000)
+    year = st.slider("Year", filters["min_date"].year, filters["max_date"].year, filters["max_date"].year)
+    month = st.slider("Month", 1, 12, 12)
+    view_mode = st.radio("View Insights for", ["Investor", "End User"])
     submit = st.form_submit_button("Run Analysis")
 
 # =======================
-# 3. LOAD + FILTER DATA
+# 3. DATA FILTERING
 # =======================
 @st.cache_data
-def load_and_filter_data(areas, types, rooms, max_price, date_start, date_end):
+def load_and_filter_data(areas, types, rooms, max_price, selected_year, selected_month):
     df = pd.read_parquet("transactions.parquet")
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
-
+    df = df[df["instance_date"].dt.year <= selected_year]
+    df = df[df["instance_date"].dt.month <= selected_month]
     if areas:
         df = df[df["area_name_en"].isin(areas)]
     if types:
@@ -59,12 +62,10 @@ def load_and_filter_data(areas, types, rooms, max_price, date_start, date_end):
     if rooms:
         df = df[df["rooms_en"].isin(rooms)]
     df = df[df["actual_worth"] <= max_price]
-    df = df[(df["instance_date"] >= date_start) & (df["instance_date"] <= date_end)]
-
     return df
 
 # =======================
-# 4. HELPER FUNCTIONS
+# 4. INSIGHT CLASSIFIERS
 # =======================
 def classify_change(val):
     if val > 5:
@@ -82,16 +83,38 @@ def classify_offplan(pct):
     else:
         return "Low"
 
+@st.cache_data
+def load_pattern_matrix():
+    url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
+    return pd.read_csv(url)
+
+def get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct):
+    pattern = {
+        "QoQ_Price": classify_change(qoq_price),
+        "YoY_Price": classify_change(yoy_price),
+        "QoQ_Volume": classify_change(qoq_volume),
+        "YoY_Vol": classify_change(yoy_volume),
+        "Offplan_Level": classify_offplan(offplan_pct),
+    }
+    match = pattern_matrix[
+        (pattern_matrix["QoQ_Price"] == pattern["QoQ_Price"]) &
+        (pattern_matrix["YoY_Price"] == pattern["YoY_Price"]) &
+        (pattern_matrix["QoQ_Volume"] == pattern["QoQ_Volume"]) &
+        (pattern_matrix["YoY_Vol"] == pattern["YoY_Vol"]) &
+        (pattern_matrix["Offplan_Level"] == pattern["Offplan_Level"])
+    ]
+    return match.iloc[0] if not match.empty else None
+
 # =======================
-# 5. PROCESS AFTER SUBMIT
+# 5. MAIN PROCESS
 # =======================
 if submit:
-    with st.spinner("🔎 Running analysis..."):
+    with st.spinner("⏳ Running analysis..."):
         gc.collect()
         try:
             df_filtered = load_and_filter_data(
                 selected_areas, selected_types, selected_rooms,
-                budget, pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+                budget, year, month
             )
         except Exception as e:
             st.error(f"Error filtering data: {e}")
@@ -99,14 +122,11 @@ if submit:
 
         st.success(f"✅ {len(df_filtered)} transactions matched.")
 
-        if len(df_filtered) > 300_000:
-            st.warning("🚨 Too many records. Please narrow your filters.")
+        if len(df_filtered) < 10:
+            st.warning("📉 Not enough data to calculate trends.")
             st.stop()
 
-        # =======================
-        # 6. METRIC SUMMARY TAGS
-        # =======================
-        st.subheader("📊 Market Tags Summary")
+        # ===== METRICS =====
         grouped = df_filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
             "actual_worth": "mean",
             "transaction_id": "count"
@@ -119,15 +139,41 @@ if submit:
             year_ago = grouped.iloc[-5] if len(grouped) >= 5 else previous
             yoy_price = ((latest["avg_price"] - year_ago["avg_price"]) / year_ago["avg_price"]) * 100
             yoy_volume = ((latest["volume"] - year_ago["volume"]) / year_ago["volume"]) * 100
-            offplan_pct = df_filtered["offplan"].mean()
 
-            tag_col1, tag_col2, tag_col3 = st.columns(3)
-            tag_col1.metric("🏷️ Price QoQ", classify_change(qoq_price))
-            tag_col1.metric("📈 Volume QoQ", classify_change(qoq_volume))
-            tag_col2.metric("🏷️ Price YoY", classify_change(yoy_price))
-            tag_col2.metric("📈 Volume YoY", classify_change(yoy_volume))
-            tag_col3.metric("🏗️ Offplan Level", classify_offplan(offplan_pct))
+            offplan_pct = df_filtered["reg_type_en"].eq("Off-Plan Properties").mean()
+
+            # Tags
+            tag_qoq_price = classify_change(qoq_price)
+            tag_yoy_price = classify_change(yoy_price)
+            tag_qoq_vol = classify_change(qoq_volume)
+            tag_yoy_vol = classify_change(yoy_volume)
+            tag_offplan = classify_offplan(offplan_pct)
+
+            # Show dashboard-style layout
+            st.subheader("📊 Market Summary Tags")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("🏷️ Price QoQ", tag_qoq_price)
+            col1.metric("🏷️ Price YoY", tag_yoy_price)
+            col2.metric("📈 Volume QoQ", tag_qoq_vol)
+            col2.metric("📈 Volume YoY", tag_yoy_vol)
+            col3.metric("🧱 Offplan Level", tag_offplan)
+
+            # ===== Pattern Lookup =====
+            pattern_matrix = load_pattern_matrix()
+            pattern = get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct)
+
+            if pattern is not None:
+                st.subheader("📌 Matched Market Pattern")
+                st.markdown(f"**Pattern ID:** `{pattern['PatternID']}`")
+                if view_mode == "Investor":
+                    st.markdown(f"**Investor Insight:** {pattern['Insight_Investor']}")
+                    st.markdown(f"**Investor Recommendation:** {pattern['Recommendation_Investor']}")
+                else:
+                    st.markdown(f"**End User Insight:** {pattern['Insight_EndUser']}")
+                    st.markdown(f"**End User Recommendation:** {pattern['Recommendation_EndUser']}")
+            else:
+                st.warning("❌ No matching pattern found for current market tags.")
         else:
-            st.warning("Not enough quarterly data for trend metrics.")
+            st.warning("Not enough quarterly data to calculate changes.")
 else:
-    st.info("🎯 Use the filters and click 'Run Analysis' to begin.")
+    st.info("🎯 Use the sidebar filters and click 'Run Analysis' to begin.")

@@ -163,8 +163,7 @@ if submit:
             pattern = get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct)
 
             if pattern is not None:
-                st.subheader("📌 Matched Market Pattern")
-                st.markdown(f"**Pattern ID:** `{pattern['PatternID']}`")
+                st.subheader("📌 Recommendation")
                 st.markdown(f"**Insight ({view_mode}):** {pattern[f'Insight_{view_mode}']}")
                 st.markdown(f"**Recommendation ({view_mode}):** {pattern[f'Recommendation_{view_mode}']}")
             else:

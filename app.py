@@ -28,15 +28,12 @@ if "filters" not in st.session_state:
 # === Step 1: FILTER DATA ===
 if step == "🧮 Filter":
     st.title("Step 1: Filter Data")
-    with st.form("filters"):
-        area = st.multiselect("Area", sorted(df["area_name_en"].dropna().unique()))
-        prop_type = st.multiselect("Property Type", sorted(df["property_type_en"].dropna().unique()))
-        bedrooms = st.multiselect("Bedrooms", sorted(df["rooms_en"].dropna().unique()))
-        budget = st.slider("Max Budget (AED)", int(df["actual_worth"].min()), int(df["actual_worth"].max()), int(df["actual_worth"].max()))
-        date_range = st.date_input("Transaction Date Range", [df["instance_date"].min(), df["instance_date"].max()])
-        submitted = st.form_submit_button("Save Filters")
-
-    if submitted:
+    area = st.multiselect("Area", sorted(df["area_name_en"].dropna().unique()))
+    prop_type = st.multiselect("Property Type", sorted(df["property_type_en"].dropna().unique()))
+    bedrooms = st.multiselect("Bedrooms", sorted(df["rooms_en"].dropna().unique()))
+    budget = st.slider("Max Budget (AED)", int(df["actual_worth"].min()), int(df["actual_worth"].max()), int(df["actual_worth"].max()))
+    date_range = st.date_input("Transaction Date Range", [df["instance_date"].min(), df["instance_date"].max()])
+    if st.button("Save Filters"):
         st.session_state["filters"] = {
             "area": area,
             "prop_type": prop_type,
@@ -44,7 +41,8 @@ if step == "🧮 Filter":
             "budget": budget,
             "date_range": date_range
         }
-        st.success("✅ Filters saved. Proceed to 'Analyze' step.")
+        st.success("✅ Filters saved. Go to the Analyze step.")
+
 
 # === Step 2: ANALYZE ===
 elif step == "📊 Analyze":

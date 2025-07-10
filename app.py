@@ -1,111 +1,189 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import gdown
 import os
+import gc
 from datetime import datetime
 
 st.set_page_config(page_title="Dubai Real Estate Recommender", layout="wide")
+st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
-# ========= Load Metadata =========
+# =======================
+# 1. LOAD FILTER OPTIONS
+# =======================
 @st.cache_data
 def get_filter_metadata():
     file_path = "transactions.parquet"
     if not os.path.exists(file_path):
         gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
     df = pd.read_parquet(file_path, columns=[
-        "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "size_sqm", "offplan"
+        "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "transaction_id"
     ])
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
+    return {
+        "areas": sorted(df["area_name_en"].dropna().unique()),
+        "types": sorted(df["property_type_en"].dropna().unique()),
+        "rooms": sorted(df["rooms_en"].dropna().unique()),
+        "min_price": int(df["actual_worth"].min()),
+        "max_price": int(df["actual_worth"].max()),
+        "min_date": df["instance_date"].min(),
+        "max_date": df["instance_date"].max()
+    }
+
+filters = get_filter_metadata()
+
+# =======================
+# 2. FILTER SIDEBAR
+# =======================
+st.sidebar.header("🔍 Property Filters")
+with st.sidebar.form("filters_form"):
+    selected_areas = st.multiselect("Area", filters["areas"])
+    selected_types = st.multiselect("Property Type", filters["types"])
+    selected_rooms = st.multiselect("Bedrooms", filters["rooms"])
+
+    st.markdown("**💰 Budget (AED)**")
+    min_budget = st.number_input("Min Budget", value=filters["min_price"], step=10000)
+    max_budget = st.number_input("Max Budget", value=filters["max_price"], step=10000)
+
+    st.markdown("**📆 Date Range**")
+    start_year = st.slider("Start Year", 2015, 2025, filters["min_date"].year)
+    start_month = st.slider("Start Month", 1, 12, filters["min_date"].month)
+    end_year = st.slider("End Year", 2015, 2025, filters["max_date"].year)
+    end_month = st.slider("End Month", 1, 12, filters["max_date"].month)
+
+    user_type = st.radio("🔘 I am a...", ["Investor", "End User"])
+
+    submit = st.form_submit_button("Run Analysis")
+
+# =======================
+# 3. DATA LOADER
+# =======================
+@st.cache_data
+def load_and_filter_data(areas, types, rooms, min_price, max_price, start_date, end_date):
+    df = pd.read_parquet("transactions.parquet")
+    df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
+    if areas:
+        df = df[df["area_name_en"].isin(areas)]
+    if types:
+        df = df[df["property_type_en"].isin(types)]
+    if rooms:
+        df = df[df["rooms_en"].isin(rooms)]
+    df = df[(df["actual_worth"] >= min_price) & (df["actual_worth"] <= max_price)]
+    df = df[(df["instance_date"] >= start_date) & (df["instance_date"] <= end_date)]
     return df
 
-df = get_filter_metadata()
+@st.cache_data
+def load_pattern_matrix():
+    url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
+    return pd.read_csv(url)
 
-# ========= Sidebar Filters =========
-st.sidebar.header("📊 Filter Options")
-areas = st.sidebar.multiselect("Select Area", sorted(df["area_name_en"].dropna().unique()))
-types = st.sidebar.multiselect("Property Type", sorted(df["property_type_en"].dropna().unique()))
-rooms = st.sidebar.multiselect("Bedrooms", sorted(df["rooms_en"].dropna().unique()))
-persona = st.sidebar.radio("Are you an:", ["EndUser", "Investor"])
-
-min_year, max_year = df["instance_date"].dt.year.min(), df["instance_date"].dt.year.max()
-year_from = st.sidebar.slider("From Year", min_year, max_year, min_year)
-year_to = st.sidebar.slider("To Year", min_year, max_year, max_year)
-month_from = st.sidebar.slider("From Month", 1, 12, 1)
-month_to = st.sidebar.slider("To Month", 1, 12, 12)
-
-budget = st.sidebar.number_input("Max Budget (AED)", min_value=100000, max_value=10000000, value=5000000, step=100000)
-
-run = st.sidebar.button("🚀 Run Analysis")
-
-# ========= Data Filtering =========
-if run:
-    st.title("🏙️ Dubai Real Estate Market Dashboard")
-
-    mask = (df["actual_worth"] <= budget) & \
-           (df["instance_date"].dt.year.between(year_from, year_to)) & \
-           (df["instance_date"].dt.month.between(month_from, month_to))
-
-    if areas: mask &= df["area_name_en"].isin(areas)
-    if types: mask &= df["property_type_en"].isin(types)
-    if rooms: mask &= df["rooms_en"].isin(rooms)
-
-    filtered = df[mask].copy()
-    filtered["quarter"] = filtered["instance_date"].dt.to_period("Q")
-    filtered["year"] = filtered["instance_date"].dt.to_period("Y")
-
-    # ========= Metrics Calculation =========
-    grouped = filtered.groupby("quarter").agg({
-        "actual_worth": "mean",
-        "transaction_id": "count"
-    }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
-
-    if len(grouped) >= 2:
-        qoq_price = grouped["avg_price"].pct_change().iloc[-1] * 100
-        qoq_vol = grouped["volume"].pct_change().iloc[-1] * 100
+def classify_change(val):
+    if val > 5:
+        return "Up"
+    elif val < -5:
+        return "Down"
     else:
-        qoq_price, qoq_vol = 0, 0
+        return "Stable"
 
-    grouped_y = filtered.groupby("year").agg({
-        "actual_worth": "mean",
-        "transaction_id": "count"
-    }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
-
-    if len(grouped_y) >= 2:
-        yoy_price = grouped_y["avg_price"].pct_change().iloc[-1] * 100
-        yoy_vol = grouped_y["volume"].pct_change().iloc[-1] * 100
+def classify_offplan(pct):
+    if pct > 0.5:
+        return "High"
+    elif pct > 0.2:
+        return "Medium"
     else:
-        yoy_price, yoy_vol = 0, 0
+        return "Low"
 
-    avg_price = filtered["actual_worth"].mean()
-    avg_size = filtered["size_sqm"].mean()
-    price_per_sqm = avg_price / avg_size if avg_size else 0
-    total_vol = filtered.shape[0]
+def get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct):
+    pattern = {
+        "QoQ_Price": classify_change(qoq_price),
+        "YoY_Price": classify_change(yoy_price),
+        "QoQ_Volume": classify_change(qoq_volume),
+        "YoY_Vol": classify_change(yoy_volume),
+        "Offplan_Level": classify_offplan(offplan_pct),
+    }
+    match = pattern_matrix[
+        (pattern_matrix["QoQ_Price"] == pattern["QoQ_Price"]) &
+        (pattern_matrix["YoY_Price"] == pattern["YoY_Price"]) &
+        (pattern_matrix["QoQ_Volume"] == pattern["QoQ_Volume"]) &
+        (pattern_matrix["YoY_Vol"] == pattern["YoY_Vol"]) &
+        (pattern_matrix["Offplan_Level"] == pattern["Offplan_Level"])
+    ]
+    return match.iloc[0] if not match.empty else None
 
-    # ========= Dashboard =========
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("📈 Quarter Price Movement", "Up" if qoq_price > 0 else "Down", f"{qoq_price:.1f}%")
-    col2.metric("📉 Quarter Sales Movement", "Up" if qoq_vol > 0 else "Down", f"{qoq_vol:.1f}%")
-    col3.metric("📈 Yearly Price Movement", "Up" if yoy_price > 0 else "Down", f"{yoy_price:.1f}%")
-    col4.metric("📉 Yearly Sales Movement", "Up" if yoy_vol > 0 else "Down", f"{yoy_vol:.1f}%")
+# =======================
+# 4. ANALYSIS EXECUTION
+# =======================
+if submit:
+    start_date = datetime(start_year, start_month, 1)
+    end_date = datetime(end_year, end_month, 28)
 
-    st.markdown("---")
+    with st.spinner("🔎 Running analysis..."):
+        gc.collect()
+        try:
+            df_filtered = load_and_filter_data(
+                selected_areas, selected_types, selected_rooms,
+                min_budget, max_budget,
+                start_date, end_date
+            )
+        except Exception as e:
+            st.error(f"Error filtering data: {e}")
+            st.stop()
 
-    col5, col6, col7 = st.columns(3)
-    col5.metric("💰 Avg. Price", f"{avg_price/1e6:.2f}M AED")
-    col6.metric("📊 Total Volume", total_vol)
-    col7.metric("📐 Avg. Size", f"{avg_size:.2f} sqm")
+        st.success(f"✅ {len(df_filtered)} transactions matched.")
 
-    col8, col9 = st.columns(2)
-    col8.metric("🏷️ Price per Sqm", f"{price_per_sqm/1e3:.2f}K AED")
-    
-    if persona == "EndUser":
-        col9.markdown("### ✅ Recommendation")
-        col9.success("Buy – Ideal Moment")
-        st.info("💡 *Ideal personal entry window — prices rising but not inflated.*")
-    else:
-        col9.markdown("### 📊 Recommendation")
-        col9.warning("Monitor – Volume Weak")
-        st.info("💡 *Prices improving but volume soft — track market confidence before entry.*")
+        if len(df_filtered) > 300_000:
+            st.warning("🚨 Too many records. Please narrow your filters.")
+            st.stop()
+
+        # =======================
+        # 5. METRIC SUMMARY
+        # =======================
+        st.subheader("📊 Market Summary")
+        grouped = df_filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
+            "actual_worth": "mean",
+            "transaction_id": "count"
+        }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
+
+        if len(grouped) >= 2:
+            latest, previous = grouped.iloc[-1], grouped.iloc[-2]
+            qoq_price = ((latest["avg_price"] - previous["avg_price"]) / previous["avg_price"]) * 100
+            qoq_volume = ((latest["volume"] - previous["volume"]) / previous["volume"]) * 100
+            year_ago = grouped.iloc[-5] if len(grouped) >= 5 else previous
+            yoy_price = ((latest["avg_price"] - year_ago["avg_price"]) / year_ago["avg_price"]) * 100
+            yoy_volume = ((latest["volume"] - year_ago["volume"]) / year_ago["volume"]) * 100
+
+            col1, col2 = st.columns(2)
+            col1.metric("🏷️ Price QoQ", f"{qoq_price:.1f}%")
+            col1.metric("📈 Volume QoQ", f"{qoq_volume:.1f}%")
+            col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
+            col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
+        else:
+            st.warning("Not enough data to calculate QoQ/YoY trends.")
+
+        # =======================
+        # 6. PATTERN MATCH
+        # =======================
+        pattern_matrix = load_pattern_matrix()
+        offplan_pct = 0.3  # Placeholder (can update later with actual logic)
+        pattern = get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct)
+
+        if pattern is not None:
+            st.markdown("---")
+            st.subheader("📌 Matched Market Pattern")
+            st.markdown(f"**Pattern ID:** `{pattern['PatternID']}`")
+
+            colL, colR = st.columns([1, 1])
+            if user_type == "Investor":
+                colL.markdown("#### 🧠 Investor Insight")
+                colL.markdown(f"<div style='font-size:17px'>{pattern['Insight_Investor']}</div>", unsafe_allow_html=True)
+                colR.markdown("#### ✅ Investor Recommendation")
+                colR.markdown(f"<div style='font-size:17px'>{pattern['Recommendation_Investor']}</div>", unsafe_allow_html=True)
+            else:
+                colL.markdown("#### 🧠 End User Insight")
+                colL.markdown(f"<div style='font-size:17px'>{pattern['Insight_EndUser']}</div>", unsafe_allow_html=True)
+                colR.markdown("#### ✅ End User Recommendation")
+                colR.markdown(f"<div style='font-size:17px'>{pattern['Recommendation_EndUser']}</div>", unsafe_allow_html=True)
+        else:
+            st.warning("No matching pattern found for current market metrics.")
 else:
-    st.info("ℹ️ Adjust filters on the left and click **Run Analysis** to begin.")
+    st.info("🎯 Use the filters and click 'Run Analysis' to begin.")

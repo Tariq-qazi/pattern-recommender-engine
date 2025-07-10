@@ -4,6 +4,7 @@ import gdown
 import os
 import gc
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Dubai Real Estate Pattern Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
@@ -17,7 +18,7 @@ def get_filter_metadata():
     if not os.path.exists(file_path):
         gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
     df = pd.read_parquet(file_path, columns=[
-        "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "reg_type_en", "transaction_id"
+        "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "reg_type_en", "transaction_id", "size"
     ])
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return {
@@ -41,7 +42,10 @@ with st.sidebar.form("filters_form"):
     selected_types = st.multiselect("Property Type", filters["types"])
     selected_rooms = st.multiselect("Bedrooms", filters["rooms"])
     budget = st.number_input("Max Budget (AED)", value=filters["max_price"], step=100000)
-    date_range = st.slider("Transaction Date Range", filters["min_date"].date(), filters["max_date"].date(), (filters["min_date"].date(), filters["max_date"].date()))
+    start_year = st.number_input("Start Year", min_value=filters["min_date"].year, max_value=filters["max_date"].year, value=filters["min_date"].year)
+    start_month = st.number_input("Start Month", min_value=1, max_value=12, value=1)
+    end_year = st.number_input("End Year", min_value=filters["min_date"].year, max_value=filters["max_date"].year, value=filters["max_date"].year)
+    end_month = st.number_input("End Month", min_value=1, max_value=12, value=12)
     view_mode = st.radio("View Insights for", ["Investor", "EndUser"])
     submit = st.form_submit_button("Run Analysis")
 
@@ -111,9 +115,11 @@ if submit:
     with st.spinner("⏳ Running analysis..."):
         gc.collect()
         try:
+            start_date = datetime(start_year, start_month, 1)
+            end_date = datetime(end_year, end_month, 28)
             df_filtered = load_and_filter_data(
                 selected_areas, selected_types, selected_rooms,
-                budget, date_range[0], date_range[1]
+                budget, start_date, end_date
             )
         except Exception as e:
             st.error(f"Error filtering data: {e}")
@@ -125,7 +131,6 @@ if submit:
             st.warning("📉 Not enough data to calculate trends.")
             st.stop()
 
-        # ===== METRICS =====
         grouped = df_filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
             "actual_worth": "mean",
             "transaction_id": "count"
@@ -141,14 +146,12 @@ if submit:
 
             offplan_pct = df_filtered["reg_type_en"].eq("Off-Plan Properties").mean()
 
-            # Tags
             tag_qoq_price = classify_change(qoq_price)
             tag_yoy_price = classify_change(yoy_price)
             tag_qoq_vol = classify_change(qoq_volume)
             tag_yoy_vol = classify_change(yoy_volume)
             tag_offplan = classify_offplan(offplan_pct)
 
-            # Show dashboard-style layout
             st.subheader("📊 Market Summary Tags")
             col1, col2, col3 = st.columns(3)
             col1.metric("🏷️ Price QoQ", tag_qoq_price)
@@ -157,7 +160,6 @@ if submit:
             col2.metric("📈 Volume YoY", tag_yoy_vol)
             col3.metric("🧱 Offplan Level", tag_offplan)
 
-            # ===== Pattern Lookup =====
             pattern = get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct)
 
             if pattern is not None:
@@ -167,6 +169,18 @@ if submit:
                 st.markdown(f"**Recommendation ({view_mode}):** {pattern[f'Recommendation_{view_mode}']}")
             else:
                 st.warning("❌ No matching pattern found for current market tags.")
+
+            # Extra Analysis
+            st.subheader("📈 Extra Market Stats")
+            avg_price = df_filtered["actual_worth"].mean()
+            avg_size = df_filtered["size"].mean() if "size" in df_filtered.columns else None
+            price_per_sqm = avg_price / avg_size if avg_size else None
+            st.markdown(f"**Average Price:** AED {avg_price:,.0f}")
+            if price_per_sqm:
+                st.markdown(f"**Avg. Price/sqm:** AED {price_per_sqm:,.0f}")
+
+            st.line_chart(grouped["avg_price"].rename("Quarterly Avg Price"))
+
         else:
             st.warning("Not enough quarterly data to calculate changes.")
 else:

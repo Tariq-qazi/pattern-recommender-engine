@@ -20,7 +20,7 @@ def load_data():
 
 @st.cache_data
 def load_pattern_matrix():
-    pattern_url = "https://raw.githubusercontent.com/tareqanalytics/serdal-assets/main/PatternMatrix.csv"
+    pattern_url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
     pattern_df = pd.read_csv(pattern_url)
     return pattern_df
 

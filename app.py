@@ -8,7 +8,7 @@ import gc
 st.set_page_config(page_title="Dubai Real Estate Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def load_data():
     file_path = "transactions.parquet"
     if not os.path.exists(file_path):
@@ -18,14 +18,7 @@ def load_data():
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return df
 
-@st.cache_data
-def load_pattern_matrix():
-    pattern_url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
-    pattern_df = pd.read_csv(pattern_url)
-    return pattern_df
-
 df = load_data()
-pattern_matrix = load_pattern_matrix()
 
 # === Sidebar Filter Form ===
 st.sidebar.header("🔍 Property Filters")
@@ -51,6 +44,9 @@ if submit:
         filtered = filtered[filtered["actual_worth"] <= budget]
         filtered = filtered[(filtered["instance_date"] >= pd.to_datetime(date_range[0])) & (filtered["instance_date"] <= pd.to_datetime(date_range[1]))]
 
+        gc.collect()
+        st.code(f"Shape after filter: {filtered.shape}")
+
         if len(filtered) > 300_000:
             st.warning("🚨 Too many results. Please narrow your filters (area, type, budget).")
             st.stop()
@@ -58,42 +54,31 @@ if submit:
         st.success(f"✅ {len(filtered)} properties matched.")
 
         # === Metrics Only, No DataFrame ===
-        st.subheader("📊 Market Summary Metrics")
-        grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
-            "actual_worth": "mean",
-            "transaction_id": "count"
-        }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
+        try:
+            st.subheader("📊 Market Summary Metrics")
+            grouped = filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
+                "actual_worth": "mean",
+                "transaction_id": "count"
+            }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
 
-        if len(grouped) >= 2:
-            latest, previous = grouped.iloc[-1], grouped.iloc[-2]
-            qoq_price = ((latest["avg_price"] - previous["avg_price"]) / previous["avg_price"]) * 100
-            qoq_volume = ((latest["volume"] - previous["volume"]) / previous["volume"]) * 100
+            if len(grouped) >= 2:
+                latest, previous = grouped.iloc[-1], grouped.iloc[-2]
+                qoq_price = ((latest["avg_price"] - previous["avg_price"]) / previous["avg_price"]) * 100
+                qoq_volume = ((latest["volume"] - previous["volume"]) / previous["volume"]) * 100
 
-            year_ago = grouped.iloc[-5] if len(grouped) >= 5 else previous
-            yoy_price = ((latest["avg_price"] - year_ago["avg_price"]) / year_ago["avg_price"]) * 100
-            yoy_volume = ((latest["volume"] - year_ago["volume"]) / year_ago["volume"]) * 100
+                year_ago = grouped.iloc[-5] if len(grouped) >= 5 else previous
+                yoy_price = ((latest["avg_price"] - year_ago["avg_price"]) / year_ago["avg_price"]) * 100
+                yoy_volume = ((latest["volume"] - year_ago["volume"]) / year_ago["volume"]) * 100
 
-            col1, col2 = st.columns(2)
-            col1.metric("🏷️ Price QoQ", f"{qoq_price:.1f}%")
-            col1.metric("📈 Volume QoQ", f"{qoq_volume:.1f}%")
-            col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
-            col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
-
-            # === Pattern Matching ===
-            st.subheader("🧠 Pattern-Based Recommendation")
-            pattern_match = pattern_matrix.copy()
-            pattern_match["score"] = (
-                abs(pattern_match["QoQ_Price"] - qoq_price) +
-                abs(pattern_match["YoY_Price"] - yoy_price) +
-                abs(pattern_match["QoQ_Volume"] - qoq_volume) +
-                abs(pattern_match["YoY_Volume"] - yoy_volume)
-            )
-            best_match = pattern_match.sort_values("score").iloc[0]
-
-            st.markdown(f"**🔎 Pattern ID:** {best_match['PatternID']}")
-            st.markdown(f"**🧠 Insight:** {best_match['Insight_Narrative']}")
-            st.markdown(f"**📢 Recommendation:** {best_match['Recommendation']}")
-        else:
-            st.warning("Not enough quarterly data for trend metrics.")
+                col1, col2 = st.columns(2)
+                col1.metric("🏷️ Price QoQ", f"{qoq_price:.1f}%")
+                col1.metric("📈 Volume QoQ", f"{qoq_volume:.1f}%")
+                col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
+                col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
+            else:
+                st.warning("Not enough quarterly data for trend metrics.")
+        except Exception as e:
+            st.error(f"📛 Metric calculation failed: {e}")
+            st.stop()
 else:
     st.info("🎯 Use the filters and click 'Run Analysis' to start.")

@@ -20,7 +20,7 @@ df = load_data()
 @st.cache_data
 
 def load_pattern_matrix():
-    url = "https://raw.githubusercontent.com/tareqch/chatgpt-data/main/PatternMatrix.csv"
+    url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
     pattern_df = pd.read_csv(url)
     return pattern_df
 

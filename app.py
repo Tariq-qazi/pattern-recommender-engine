@@ -9,7 +9,7 @@ st.set_page_config(layout="wide")
 @st.cache_data
 
 def load_data():
-    url = "https://raw.githubusercontent.com/tareqch/chatgpt-data/main/cleaned_real_estate.csv"
+    url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
     df = pd.read_csv(url)
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return df

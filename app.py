@@ -18,14 +18,8 @@ def get_filter_metadata():
     if not os.path.exists(file_path):
         gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
     df = pd.read_parquet(file_path, columns=[
-    "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "reg_type_en", "transaction_id", "procedure_area"
-
-
-])
-
-
-
-   
+        "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "reg_type_en", "transaction_id", "procedure_area"
+    ])
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return {
         "areas": sorted(df["area_name_en"].dropna().unique()),
@@ -176,15 +170,14 @@ if submit:
             else:
                 st.warning("❌ No matching pattern found for current market tags.")
 
-            # Extra Analysis
+            # Extra Stats
             st.subheader("📈 Extra Market Stats")
             avg_price = df_filtered["actual_worth"].mean()
-            avg_size = df_filtered["size"].mean() if "size" in df_filtered.columns else None
+            avg_size = df_filtered["procedure_area"].mean() if "procedure_area" in df_filtered.columns else None
             price_per_sqm = avg_price / avg_size if avg_size else None
             st.markdown(f"**Average Price:** AED {avg_price:,.0f}")
             if price_per_sqm:
                 st.markdown(f"**Avg. Price/sqm:** AED {price_per_sqm:,.0f}")
-
             st.line_chart(grouped["avg_price"].rename("Quarterly Avg Price"))
 
         else:

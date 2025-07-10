@@ -41,8 +41,7 @@ with st.sidebar.form("filters_form"):
     selected_types = st.multiselect("Property Type", filters["types"])
     selected_rooms = st.multiselect("Bedrooms", filters["rooms"])
     budget = st.number_input("Max Budget (AED)", value=filters["max_price"], step=100000)
-    year = st.slider("Year", filters["min_date"].year, filters["max_date"].year, filters["max_date"].year)
-    month = st.slider("Month", 1, 12, 12)
+    date_range = st.slider("Transaction Date Range", filters["min_date"].date(), filters["max_date"].date(), (filters["min_date"].date(), filters["max_date"].date()))
     view_mode = st.radio("View Insights for", ["Investor", "EndUser"])
     submit = st.form_submit_button("Run Analysis")
 
@@ -50,11 +49,10 @@ with st.sidebar.form("filters_form"):
 # 3. DATA FILTERING
 # =======================
 @st.cache_data
-def load_and_filter_data(areas, types, rooms, max_price, selected_year, selected_month):
+def load_and_filter_data(areas, types, rooms, max_price, start_date, end_date):
     df = pd.read_parquet("transactions.parquet")
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
-    df = df[df["instance_date"].dt.year <= selected_year]
-    df = df[df["instance_date"].dt.month <= selected_month]
+    df = df[(df["instance_date"] >= pd.to_datetime(start_date)) & (df["instance_date"] <= pd.to_datetime(end_date))]
     if areas:
         df = df[df["area_name_en"].isin(areas)]
     if types:
@@ -115,7 +113,7 @@ if submit:
         try:
             df_filtered = load_and_filter_data(
                 selected_areas, selected_types, selected_rooms,
-                budget, year, month
+                budget, date_range[0], date_range[1]
             )
         except Exception as e:
             st.error(f"Error filtering data: {e}")
@@ -166,6 +164,7 @@ if submit:
                 st.subheader("📌 Matched Market Pattern")
                 st.markdown(f"**Pattern ID:** `{pattern['PatternID']}`")
                 st.markdown(f"**Insight ({view_mode}):** {pattern[f'Insight_{view_mode}']}")
+                st.markdown(f"**Recommendation ({view_mode}):** {pattern[f'Recommendation_{view_mode}']}")
             else:
                 st.warning("❌ No matching pattern found for current market tags.")
         else:

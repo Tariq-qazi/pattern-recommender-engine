@@ -44,6 +44,9 @@ with st.sidebar.form("filters_form"):
     date_range = st.date_input("Transaction Date Range", [filters["min_date"], filters["max_date"]])
     submit = st.form_submit_button("Run Analysis")
 
+# Persona selector (Investor vs EndUser)
+persona = st.selectbox("🎯 You are an...", ["EndUser", "Investor"])
+
 # =======================
 # 3. LOAD + FILTER DATA
 # =======================
@@ -64,15 +67,47 @@ def load_and_filter_data(areas, types, rooms, max_price, date_start, date_end):
     return df
 
 # =======================
-# 4. PATTERN MATRIX LOADER
+# 4. LOAD PATTERN MATRIX
 # =======================
 @st.cache_data
 def load_pattern_matrix():
-    url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/main/PatternMatrix.csv"
+    url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
     return pd.read_csv(url)
 
+pattern_matrix = load_pattern_matrix()
+
 # =======================
-# 5. ANALYSIS
+# 5. MATCHING LOGIC
+# =======================
+def classify_change(val):
+    if val > 5:
+        return "Up"
+    elif val < -5:
+        return "Down"
+    else:
+        return "Stable"
+
+def get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct):
+    pattern = {
+        "QoQ_Price": classify_change(qoq_price),
+        "YoY_Price": classify_change(yoy_price),
+        "QoQ_Volume": classify_change(qoq_volume),
+        "YoY_Vol": classify_change(yoy_volume),
+        "Offplan_Level": "Medium"  # Fixed or from data
+    }
+
+    match = pattern_matrix[
+        (pattern_matrix["QoQ_Price"] == pattern["QoQ_Price"]) &
+        (pattern_matrix["YoY_Price"] == pattern["YoY_Price"]) &
+        (pattern_matrix["QoQ_Volume"] == pattern["QoQ_Volume"]) &
+        (pattern_matrix["YoY_Vol"] == pattern["YoY_Vol"]) &
+        (pattern_matrix["Offplan_Level"] == pattern["Offplan_Level"])
+    ]
+
+    return match.iloc[0] if not match.empty else None
+
+# =======================
+# 6. MAIN ANALYSIS BLOCK
 # =======================
 if submit:
     with st.spinner("🔎 Running analysis..."):
@@ -92,13 +127,11 @@ if submit:
             st.warning("🚨 Too many records. Please narrow your filters.")
             st.stop()
 
-        # =======================
-        # 6. METRIC SUMMARY
-        # =======================
+        # ========== METRICS ==========
         st.subheader("📊 Market Summary Metrics")
         grouped = df_filtered.groupby(pd.Grouper(key="instance_date", freq="Q")).agg({
             "actual_worth": "mean",
-            "transaction_id": "count" if "transaction_id" in df_filtered.columns else "size"
+            "transaction_id": "count"
         }).rename(columns={"actual_worth": "avg_price", "transaction_id": "volume"}).dropna()
 
         if len(grouped) >= 2:
@@ -108,69 +141,45 @@ if submit:
             year_ago = grouped.iloc[-5] if len(grouped) >= 5 else previous
             yoy_price = ((latest["avg_price"] - year_ago["avg_price"]) / year_ago["avg_price"]) * 100
             yoy_volume = ((latest["volume"] - year_ago["volume"]) / year_ago["volume"]) * 100
-
-            col1, col2 = st.columns(2)
-            col1.metric("🏷️ Price QoQ", f"{qoq_price:.1f}%")
-            col1.metric("📈 Volume QoQ", f"{qoq_volume:.1f}%")
-            col2.metric("🏷️ Price YoY", f"{yoy_price:.1f}%")
-            col2.metric("📈 Volume YoY", f"{yoy_volume:.1f}%")
         else:
-            st.warning("Not enough quarterly data for trend metrics.")
+            st.warning("Not enough data for trends.")
             st.stop()
 
-        # =======================
-        # 7. PATTERN MATCHING
-        # =======================
-        st.subheader("📌 Matched Market Pattern")
+        # ========== DASHBOARD BLOCK ==========
+        st.subheader("📋 Market Dashboard Summary")
 
-        pattern_matrix = load_pattern_matrix()
+        avg_price = df_filtered["actual_worth"].mean()
+        avg_area = df_filtered["procedure_area"].mean() if "procedure_area" in df_filtered.columns else None
+        total_volume = len(df_filtered)
+        price_per_sqm = avg_price / avg_area if avg_area and avg_area > 0 else None
 
-        def classify_change(val):
-            if val > 5:
-                return "Up"
-            elif val < -5:
-                return "Down"
-            else:
-                return "Stable"
+        pattern = get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct=0.3)
 
-        def classify_offplan(pct):
-            if pct > 0.5:
-                return "High"
-            elif pct > 0.2:
-                return "Medium"
-            else:
-                return "Low"
+        # Labels
+        def color_text(val):
+            return f":green[{val}]" if val == "Up" else f":red[{val}]" if val == "Down" else f":gray[{val}]"
 
-        # Estimate offplan % (fallback logic in case column is missing)
-        if "reg_type_en" in df_filtered.columns:
-            offplan_pct = df_filtered["reg_type_en"].str.contains("Off-Plan", na=False).mean()
-        else:
-            offplan_pct = 0.3  # fallback average
+        # Top Row
+        c1, c2, c3, c4, c5 = st.columns([1.5, 1.2, 1.2, 1.5, 1.5])
+        c1.markdown(f"### Quarter Price\n{color_text(classify_change(qoq_price))}")
+        c2.markdown(f"### You are\n**{persona}**")
+        c3.markdown(f"### Looking for\n**{', '.join(selected_rooms) or 'Any'}**")
+        c4.markdown(f"### In\n**{', '.join(selected_areas) or 'All Areas'}**")
+        c5.markdown(f"### Avg Price\n**{avg_price/1e6:.2f}M AED**")
 
-        pattern_key = {
-            "QoQ_Price": classify_change(qoq_price),
-            "YoY_Price": classify_change(yoy_price),
-            "QoQ_Volume": classify_change(qoq_volume),
-            "YoY_Vol": classify_change(yoy_volume),
-            "Offplan_Level": classify_offplan(offplan_pct),
-        }
+        # Middle Row
+        m1, m2, m3 = st.columns([1.5, 3, 1.5])
+        m1.markdown(f"### Quarter Sales\n{color_text(classify_change(qoq_volume))}")
+        m2.markdown("### **Insights**\n" + (pattern[f"Insight_{persona}"] if pattern is not None else "No insight available."))
+        m3.markdown(f"### Volume\n**{total_volume}**")
 
-        match = pattern_matrix[
-            (pattern_matrix["QoQ_Price"] == pattern_key["QoQ_Price"]) &
-            (pattern_matrix["YoY_Price"] == pattern_key["YoY_Price"]) &
-            (pattern_matrix["QoQ_Volume"] == pattern_key["QoQ_Volume"]) &
-            (pattern_matrix["YoY_Vol"] == pattern_key["YoY_Vol"]) &
-            (pattern_matrix["Offplan_Level"] == pattern_key["Offplan_Level"])
-        ]
+        # Lower Row
+        b1, b2, b3 = st.columns([1.5, 3, 1.5])
+        b1.markdown(f"### Yearly Price\n{color_text(classify_change(yoy_price))}")
+        b2.markdown("### **Recommendation**\n" + (f"✅ **{pattern[f'Recommendation_{persona}']}**" if pattern is not None else "No recommendation."))
+        b3.markdown(f"### Avg Area\n**{avg_area:.2f} sqm**" if avg_area else "N/A")
 
-        if not match.empty:
-            row = match.iloc[0]
-            st.markdown(f"**🧠 Pattern ID:** `{row['PatternID']}`")
-            st.markdown(f"**Investor Insight:** {row['Insight_Investor']}")
-            st.markdown(f"**Investor Recommendation:** {row['Recommendation_Investor']}")
-            st.markdown(f"**End User Insight:** {row['Insight_EndUser']}")
-            st.markdown(f"**End User Recommendation:** {row['Recommendation_EndUser']}")
-        else:
-            st.warning("No matching pattern found for these metrics.")
+        if price_per_sqm:
+            st.markdown(f"### 💰 Price per Sqm: **{price_per_sqm:,.2f} AED**")
 else:
     st.info("🎯 Use the filters and click 'Run Analysis' to begin.")

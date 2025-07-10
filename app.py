@@ -5,16 +5,21 @@ from datetime import datetime
 
 st.set_page_config(layout="wide")
 
-# Load transaction data
 @st.cache_data
-
-def load_data():
-    url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
-    df = pd.read_csv(url)
+def load_and_filter_data(areas, types, rooms, max_price, date_start, date_end):
+    df = pd.read_parquet("transactions.parquet")
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
-    return df
 
-df = load_data()
+    if areas:
+        df = df[df["area_name_en"].isin(areas)]
+    if types:
+        df = df[df["property_type_en"].isin(types)]
+    if rooms:
+        df = df[df["rooms_en"].isin(rooms)]
+    df = df[df["actual_worth"] <= max_price]
+    df = df[(df["instance_date"] >= date_start) & (df["instance_date"] <= date_end)]
+
+    return df
 
 # Load the pattern matrix CSV from GitHub
 @st.cache_data

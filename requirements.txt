@@ -4,3 +4,4 @@ openpyxl
 pyarrow
 gdown
 matplotlib
+plotly

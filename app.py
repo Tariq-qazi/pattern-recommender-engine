@@ -19,6 +19,8 @@ def get_filter_metadata():
         gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
     df = pd.read_parquet(file_path, columns=[
         "area_name_en", "property_type_en", "rooms_en", "actual_worth", "instance_date", "reg_type_en", "transaction_id", "size"
+])
+
     ])
     df["instance_date"] = pd.to_datetime(df["instance_date"], errors="coerce")
     return {

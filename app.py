@@ -4,7 +4,7 @@ import gdown
 import os
 import gc
 from datetime import datetime
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Dubai Real Estate Pattern Recommender", layout="wide")
 st.title("🏙️ Dubai Real Estate Pattern Recommender")

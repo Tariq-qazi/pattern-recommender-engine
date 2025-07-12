@@ -88,7 +88,15 @@ def classify_offplan(pct):
 @st.cache_data
 def load_pattern_matrix():
     url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/refs/heads/main/PatternMatrix.csv"
-    return pd.read_csv(url)
+    df = pd.read_csv(url, encoding="utf-8")
+
+    # Fix encoded line breaks
+    for col in ["Insight_Investor", "Recommendation_Investor", "Insight_EndUser", "Recommendation_EndUser"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).apply(lambda x: x.replace('\\n', '\n'))
+
+    return df
+
 
 def get_pattern_insight(qoq_price, yoy_price, qoq_volume, yoy_volume, offplan_pct):
     pattern_matrix = load_pattern_matrix()

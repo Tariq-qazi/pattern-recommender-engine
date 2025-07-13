@@ -1,59 +1,45 @@
-# app.py — Final Grouped Area Recommendation App
+if submitted:
+    latest_q = area_data["quarter"].max()
+    latest_data = area_data[area_data["quarter"] == latest_q]
 
-import streamlit as st
-import pandas as pd
-
-st.set_page_config(page_title="Grouped Area Recommender", layout="wide")
-st.title("📊 Dubai Smart Buy Zones – Grouped by Strategy")
-
-# Load tagged patterns and pattern matrix
-@st.cache_data
-def load_data():
-    tagged = pd.read_csv("batch_tagged_output.csv")
-    matrix = pd.read_csv("PatternMatrix_with_Buckets.csv")
-
-    # Fix line breaks in matrix columns
-    for col in ["Insight_Investor", "Recommendation_Investor", "Insight_EndUser", "Recommendation_EndUser"]:
-        matrix[col] = matrix[col].astype(str).apply(lambda x: x.replace("\\n", "\n"))
-
-    # Merge bucket info
-    merged = pd.merge(tagged, matrix[["PatternID", "Bucket"]], left_on="pattern_id", right_on="PatternID", how="left")
-    return merged, matrix
-
-df, pattern_matrix = load_data()
-
-# Sidebar filters
-st.sidebar.header("🎯 Filter Criteria")
-unit_type = st.sidebar.selectbox("Unit Type", df["type"].unique())
-room_count = st.sidebar.selectbox("Bedrooms", df["rooms"].unique())
-view_mode = st.sidebar.radio("Insights For", ["Investor", "EndUser"])
-submit = st.sidebar.button("🔍 Recommend Zones")
-
-# Run analysis
-if submit:
-    filtered = df[
-        (df["type"] == unit_type) &
-        (df["rooms"] == room_count)
+    matched = latest_data[
+        (latest_data["type"] == unit_type) &
+        (latest_data["rooms"] == room_count)
     ]
 
-    if filtered.empty:
-        st.warning("❌ No data matched your criteria.")
+    if matched.empty:
+        st.warning("❌ No matching zones found for the latest quarter.")
     else:
-        st.success(f"✅ {len(filtered)} matched rows found.")
-        grouped = filtered.groupby("Bucket")
+        st.success(f"✅ {len(matched)} zones matched for {latest_q}.")
 
-        for bucket, group in grouped:
-            st.subheader(f"{bucket} – {len(group)} matches")
-            top = group.sort_values("quarter", ascending=False).drop_duplicates(subset=["area"]).head(10)
+        # Add pattern bucket
+        enriched = pd.merge(matched, pattern_matrix[["PatternID", "Bucket"]], left_on="pattern_id", right_on="PatternID", how="left")
 
-            st.markdown("**Top Area Picks:**")
-            st.table(top[["area", "quarter", "pattern_id"]])
+        # Define display order for buckets
+        bucket_order = [
+            "🟢 Strong Buy",
+            "🟡 Cautious Buy / Watch",
+            "🟠 Hold / Neutral",
+            "🔁 Rotation Candidate",
+            "🧭 Strategic Waitlist",
+            "🔴 Caution / Avoid",
+            "❓ Unclassified"
+        ]
+        enriched["bucket_rank"] = enriched["Bucket"].apply(lambda b: bucket_order.index(b) if b in bucket_order else len(bucket_order))
 
-            sample_pid = top.iloc[0]["pattern_id"]
-            row = pattern_matrix[pattern_matrix["PatternID"] == sample_pid].iloc[0]
+        enriched = enriched.sort_values("bucket_rank")
 
-            st.markdown(f"**Insight ({view_mode}):**\n\n" + row[f"Insight_{view_mode}"])
-            st.markdown(f"**Recommendation ({view_mode}):**\n\n" + row[f"Recommendation_{view_mode}"])
+        for bucket in bucket_order:
+            bucket_df = enriched[enriched["Bucket"] == bucket]
+            if not bucket_df.empty:
+                st.subheader(f"{bucket} ({len(bucket_df)} areas)")
 
-else:
-    st.info("Select your filters and click '🔍 Recommend Zones' to begin.")
+                area_list = bucket_df["area"].drop_duplicates().tolist()
+                for area in area_list:
+                    st.markdown(f"- {area}")
+
+                # Show one representative insight
+                sample_pid = bucket_df.iloc[0]["pattern_id"]
+                pattern_row = pattern_matrix[pattern_matrix["PatternID"] == sample_pid].iloc[0]
+                st.markdown(f"**🧠 Insight ({view_mode}):**\n\n{pattern_row[f'Insight_{view_mode}']}")
+                st.markdown(f"**✅ Recommendation ({view_mode}):**\n\n{pattern_row[f'Recommendation_{view_mode}']}")

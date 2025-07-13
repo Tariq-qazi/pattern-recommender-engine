@@ -80,8 +80,7 @@ if submitted:
             st.markdown(f"**Representative Insight ({view_mode}):**\n\n" + p_row[f"Insight_{view_mode}"])
             st.markdown(f"**Recommendation ({view_mode}):**\n\n" + p_row[f"Recommendation_{view_mode}"])
 
-            else:
-                st.markdown("_No pattern match found for sample zone._")
+            
 
 else:
     st.info("🎯 Select filters and click 'Get Area Picks' to explore opportunities.")

@@ -66,7 +66,13 @@ if submitted:
                 st.markdown(p_row[f"Insight_{view_mode}"])
 
                 st.markdown(f"### ✅ Recommendation ({view_mode}):")
-                st.markdown(p_row[f"Recommendation_{view_mode}"].replace("\\n", "\n"))
+                import re
+                
+                # Clean and split tips based on bullet emojis
+                raw_reco = p_row[f"Recommendation_{view_mode}"]
+                cleaned_reco = raw_reco.replace("\\n", "\n")
+                tip_lines = re.split(r'(?=[•\-–●🟢🟡🟠🔴🔁🧭✅🔍👉🏽📍🏠📦📈💡📌📊📣🛑⏳💰🧠🎯📎💼🏗️🏡🌟🧾📣🔍🧭🏞️🔓🔒🚀🔑🎯🧱🏢🏙️🛒🌆🗺️📦📈📉📄📂📎📊📉📈📌💼🪙🔍👀🎯🏗️📊🧭])', cleaned_reco)
+                st.markdown("\n".join([f"- {line.strip()}" for line in tip_lines if line.strip()]))
 
                 st.markdown("---")
 

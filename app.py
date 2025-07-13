@@ -35,7 +35,7 @@ with st.sidebar.form("filter_form"):
     view_mode = st.radio("Insights For", ["Investor", "EndUser"])
     submitted = st.form_submit_button("Get Area Picks")
 
-# Load pattern matrix with bucket
+# Load pattern matrix with bucket info
 @st.cache_data
 def load_matrix():
     df = pd.read_csv("PatternMatrix_with_Buckets.csv")
@@ -45,15 +45,16 @@ def load_matrix():
 
 pattern_df = load_matrix()
 
-# Load area patterns file
+# Load area pattern-tagged data
 @st.cache_data
 def load_area_patterns():
     df = pd.read_csv("batch_tagged_output.csv")
+    df = df.rename(columns={"type": "unit_type", "rooms": "bedrooms"})  # Standardize naming
     return df
 
 area_data = load_area_patterns()
 
-# Filter by unit type, room, budget
+# Apply filters and display grouped insights
 if submitted:
     matched = area_data[
         (area_data["unit_type"] == unit_type) &
@@ -66,19 +67,23 @@ if submitted:
     else:
         st.success(f"✅ {len(matched)} zones matched your filters.")
 
-        # Group by bucket
         grouped = matched.groupby("Bucket")
         for bucket, group in grouped:
             st.subheader(f"{bucket} ({len(group)} zones)")
-
             top = group.sort_values("avg_price").head(10)
+
             st.markdown("**Top Recommendations:**")
             st.table(top[["area", "avg_price", "pattern_id"]])
 
             sample_pid = top.iloc[0]["pattern_id"]
-            p_row = pattern_df[pattern_df["PatternID"] == sample_pid].iloc[0]
-            st.markdown(f"**Representative Insight ({view_mode}):**\n\n" + p_row[f"Insight_{view_mode}"])
-            st.markdown(f"**Recommendation ({view_mode}):**\n\n" + p_row[f"Recommendation_{view_mode}"])
+            pattern_row = pattern_df[pattern_df["PatternID"] == sample_pid]
+
+            if not pattern_row.empty:
+                pr = pattern_row.iloc[0]
+                st.markdown(f"**Representative Insight ({view_mode}):**\n\n" + pr[f"Insight_{view_mode}"])
+                st.markdown(f"**Recommendation ({view_mode}):**\n\n" + pr[f"Recommendation_{view_mode}"])
+            else:
+                st.markdown("_No pattern match found for sample zone._")
 
 else:
     st.info("🎯 Select filters and click 'Get Area Picks' to explore opportunities.")

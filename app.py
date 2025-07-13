@@ -37,6 +37,7 @@ with st.sidebar.form("filter_form"):
 @st.cache_data
 def load_matrix():
     df = pd.read_csv("PatternMatrix_with_Buckets.csv")
+    df.columns = df.columns.str.strip()  # Remove leading/trailing spaces
     for col in ["Insight_Investor", "Recommendation_Investor", "Insight_EndUser", "Recommendation_EndUser"]:
         df[col] = df[col].astype(str).apply(lambda x: x.replace("\\n", "\n"))
     return df
@@ -47,7 +48,13 @@ pattern_df = load_matrix()
 @st.cache_data
 def load_area_patterns():
     tagged = pd.read_csv("batch_tagged_output.csv")
+    tagged.columns = tagged.columns.str.strip()
+    if "pattern_id" not in tagged.columns:
+        raise ValueError("❌ 'pattern_id' column not found in batch_tagged_output.csv")
+
     matrix = pd.read_csv("PatternMatrix_with_Buckets.csv")
+    matrix.columns = matrix.columns.str.strip()
+
     merged = pd.merge(
         tagged,
         matrix[["PatternID", "Bucket"]],
@@ -59,7 +66,7 @@ def load_area_patterns():
 
 area_data = load_area_patterns()
 
-# Filter by unit type, room
+# Filter by unit type and room
 if submitted:
     matched = area_data[
         (area_data["unit_type"] == unit_type) &

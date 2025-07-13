@@ -1,5 +1,3 @@
-# Updated app.py for the Grouped Recommendation Version
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -35,7 +33,7 @@ with st.sidebar.form("filter_form"):
     view_mode = st.radio("Insights For", ["Investor", "EndUser"])
     submitted = st.form_submit_button("Get Area Picks")
 
-# Load pattern matrix with bucket info
+# Load pattern matrix with bucket
 @st.cache_data
 def load_matrix():
     df = pd.read_csv("PatternMatrix_with_Buckets.csv")
@@ -45,16 +43,23 @@ def load_matrix():
 
 pattern_df = load_matrix()
 
-# Load area pattern-tagged data
+# Load area patterns and merge buckets
 @st.cache_data
 def load_area_patterns():
-    df = pd.read_csv("batch_tagged_output.csv")
-    df = df.rename(columns={"type": "unit_type", "rooms": "bedrooms"})  # Standardize naming
-    return df
+    tagged = pd.read_csv("batch_tagged_output.csv")
+    matrix = pd.read_csv("PatternMatrix_with_Buckets.csv")
+    merged = pd.merge(
+        tagged,
+        matrix[["PatternID", "Bucket"]],
+        how="left",
+        left_on="pattern_id",
+        right_on="PatternID"
+    )
+    return merged
 
 area_data = load_area_patterns()
 
-# Apply filters and display grouped insights
+# Filter by unit type, room
 if submitted:
     matched = area_data[
         (area_data["unit_type"] == unit_type) &
@@ -79,8 +84,6 @@ if submitted:
             p_row = pattern_df[pattern_df["PatternID"] == sample_pid].iloc[0]
             st.markdown(f"**Representative Insight ({view_mode}):**\n\n" + p_row[f"Insight_{view_mode}"])
             st.markdown(f"**Recommendation ({view_mode}):**\n\n" + p_row[f"Recommendation_{view_mode}"])
-
-            
 
 else:
     st.info("🎯 Select filters and click 'Get Area Picks' to explore opportunities.")

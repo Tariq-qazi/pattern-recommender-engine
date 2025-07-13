@@ -23,21 +23,23 @@ with st.sidebar.form("filter_form"):
     view_mode = st.radio("Insights For", ["Investor", "EndUser"])
     submitted = st.form_submit_button("Get Area Picks")
 
-# Only run if filters are submitted
 if submitted:
-    latest_q = df["quarter"].max()
+    # 📆 Get last two quarters
+    all_quarters = sorted(df["quarter"].unique())
+    latest_two = all_quarters[-2:]
+
     filtered = df[
         (df["type"] == unit_type) &
         (df["rooms"] == room_count) &
-        (df["quarter"] == latest_q)
+        (df["quarter"].isin(latest_two))
     ]
 
     if filtered.empty:
-        st.warning("❌ No matching zones found for the latest quarter.")
+        st.warning("❌ No matching zones found for the latest quarters.")
     else:
-        st.success(f"✅ {len(filtered)} zones matched for {latest_q}.")
+        st.success(f"✅ {len(filtered)} zones matched for the last two quarters ({', '.join(latest_two)}).")
 
-        # Sort by bucket quality
+        # Rank and sort by pattern bucket
         bucket_order = [
             "🟢 Strong Buy",
             "🟡 Cautious Buy / Watch",
@@ -57,11 +59,16 @@ if submitted:
                 for area in group["area"].drop_duplicates():
                     st.markdown(f"- {area}")
 
-                # Show 1 sample insight from the group
                 sample = group.iloc[0]
                 p_row = pattern_matrix[pattern_matrix["PatternID"] == sample["pattern_id"]].iloc[0]
-                st.markdown(f"**🧠 Insight ({view_mode}):**\n\n{p_row[f'Insight_{view_mode}']}")
-                st.markdown(f"**✅ Recommendation ({view_mode}):**\n\n{p_row[f'Recommendation_{view_mode}']}")
+
+                st.markdown(f"### 🧠 Insight ({view_mode}):")
+                st.markdown(p_row[f"Insight_{view_mode}"])
+
+                st.markdown(f"### ✅ Recommendation ({view_mode}):")
+                st.markdown(p_row[f"Recommendation_{view_mode}"].replace("\\n", "\n"))
+
+                st.markdown("---")
 
 else:
     st.info("🎯 Select filters and click 'Get Area Picks' to explore opportunities.")

@@ -48,7 +48,7 @@ pattern_df = load_matrix()
 # Load area patterns file
 @st.cache_data
 def load_area_patterns():
-    df = pd.read_csv("Grouped_Area_Patterns.csv")
+    df = pd.read_csv("batch_tagged_output.csv")
     return df
 
 area_data = load_area_patterns()

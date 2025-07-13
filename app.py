@@ -58,7 +58,7 @@ area_data = load_area_patterns()
 if submitted:
     matched = area_data[
         (area_data["unit_type"] == unit_type) &
-        (area_data["bedrooms"] == room_count) &
+        (area_data["bedrooms"] == room_count)
     ]
 
     if matched.empty:
@@ -66,21 +66,20 @@ if submitted:
     else:
         st.success(f"✅ {len(matched)} zones matched your filters.")
 
+        # Group by bucket
         grouped = matched.groupby("Bucket")
         for bucket, group in grouped:
             st.subheader(f"{bucket} ({len(group)} zones)")
-            top = group.sort_values("avg_price").head(10)
 
+            top = group.sort_values("area").head(10)
             st.markdown("**Top Recommendations:**")
-            st.table(top[["area", "avg_price", "pattern_id"]])
+            st.table(top[["area", "pattern_id"]])
 
             sample_pid = top.iloc[0]["pattern_id"]
-            pattern_row = pattern_df[pattern_df["PatternID"] == sample_pid]
+            p_row = pattern_df[pattern_df["PatternID"] == sample_pid].iloc[0]
+            st.markdown(f"**Representative Insight ({view_mode}):**\n\n" + p_row[f"Insight_{view_mode}"])
+            st.markdown(f"**Recommendation ({view_mode}):**\n\n" + p_row[f"Recommendation_{view_mode}"])
 
-            if not pattern_row.empty:
-                pr = pattern_row.iloc[0]
-                st.markdown(f"**Representative Insight ({view_mode}):**\n\n" + pr[f"Insight_{view_mode}"])
-                st.markdown(f"**Recommendation ({view_mode}):**\n\n" + pr[f"Recommendation_{view_mode}"])
             else:
                 st.markdown("_No pattern match found for sample zone._")
 

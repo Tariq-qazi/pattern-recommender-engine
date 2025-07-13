@@ -1,21 +1,43 @@
-if submitted:
-    latest_q = area_data["quarter"].max()
-    latest_data = area_data[area_data["quarter"] == latest_q]
+import streamlit as st
+import pandas as pd
+import os
 
-    matched = latest_data[
-        (latest_data["type"] == unit_type) &
-        (latest_data["rooms"] == room_count)
+st.set_page_config(page_title="Grouped Area Recommendation", layout="wide")
+st.title("🏘️ Dubai Real Estate – Smart Buy Groups")
+
+# Load pattern matrix with buckets
+@st.cache_data
+def load_data():
+    tagged = pd.read_csv("batch_tagged_output.csv")
+    matrix = pd.read_csv("PatternMatrix_with_Buckets.csv")
+    merged = pd.merge(tagged, matrix[["PatternID", "Bucket"]], left_on="pattern_id", right_on="PatternID", how="left")
+    return merged, matrix
+
+df, pattern_matrix = load_data()
+
+# Sidebar filters
+st.sidebar.header("🔍 Choose Buyer Criteria")
+with st.sidebar.form("filter_form"):
+    unit_type = st.selectbox("Unit Type", sorted(df["type"].dropna().unique()))
+    room_count = st.selectbox("Bedrooms", sorted(df["rooms"].dropna().unique()))
+    view_mode = st.radio("Insights For", ["Investor", "EndUser"])
+    submitted = st.form_submit_button("Get Area Picks")
+
+# Only run if filters are submitted
+if submitted:
+    latest_q = df["quarter"].max()
+    filtered = df[
+        (df["type"] == unit_type) &
+        (df["rooms"] == room_count) &
+        (df["quarter"] == latest_q)
     ]
 
-    if matched.empty:
+    if filtered.empty:
         st.warning("❌ No matching zones found for the latest quarter.")
     else:
-        st.success(f"✅ {len(matched)} zones matched for {latest_q}.")
+        st.success(f"✅ {len(filtered)} zones matched for {latest_q}.")
 
-        # Add pattern bucket
-        enriched = pd.merge(matched, pattern_matrix[["PatternID", "Bucket"]], left_on="pattern_id", right_on="PatternID", how="left")
-
-        # Define display order for buckets
+        # Sort by bucket quality
         bucket_order = [
             "🟢 Strong Buy",
             "🟡 Cautious Buy / Watch",
@@ -25,21 +47,21 @@ if submitted:
             "🔴 Caution / Avoid",
             "❓ Unclassified"
         ]
-        enriched["bucket_rank"] = enriched["Bucket"].apply(lambda b: bucket_order.index(b) if b in bucket_order else len(bucket_order))
-
-        enriched = enriched.sort_values("bucket_rank")
+        filtered["bucket_rank"] = filtered["Bucket"].apply(lambda b: bucket_order.index(b) if b in bucket_order else len(bucket_order))
+        filtered = filtered.sort_values("bucket_rank")
 
         for bucket in bucket_order:
-            bucket_df = enriched[enriched["Bucket"] == bucket]
-            if not bucket_df.empty:
-                st.subheader(f"{bucket} ({len(bucket_df)} areas)")
-
-                area_list = bucket_df["area"].drop_duplicates().tolist()
-                for area in area_list:
+            group = filtered[filtered["Bucket"] == bucket]
+            if not group.empty:
+                st.subheader(f"{bucket} ({len(group)} areas)")
+                for area in group["area"].drop_duplicates():
                     st.markdown(f"- {area}")
 
-                # Show one representative insight
-                sample_pid = bucket_df.iloc[0]["pattern_id"]
-                pattern_row = pattern_matrix[pattern_matrix["PatternID"] == sample_pid].iloc[0]
-                st.markdown(f"**🧠 Insight ({view_mode}):**\n\n{pattern_row[f'Insight_{view_mode}']}")
-                st.markdown(f"**✅ Recommendation ({view_mode}):**\n\n{pattern_row[f'Recommendation_{view_mode}']}")
+                # Show 1 sample insight from the group
+                sample = group.iloc[0]
+                p_row = pattern_matrix[pattern_matrix["PatternID"] == sample["pattern_id"]].iloc[0]
+                st.markdown(f"**🧠 Insight ({view_mode}):**\n\n{p_row[f'Insight_{view_mode}']}")
+                st.markdown(f"**✅ Recommendation ({view_mode}):**\n\n{p_row[f'Recommendation_{view_mode}']}")
+
+else:
+    st.info("🎯 Select filters and click 'Get Area Picks' to explore opportunities.")

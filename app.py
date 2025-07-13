@@ -59,7 +59,6 @@ if submitted:
     matched = area_data[
         (area_data["unit_type"] == unit_type) &
         (area_data["bedrooms"] == room_count) &
-        (area_data["avg_price"] <= budget)
     ]
 
     if matched.empty:

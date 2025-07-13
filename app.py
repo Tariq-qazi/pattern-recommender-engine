@@ -1,84 +1,83 @@
+# app.py
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import gdown
+import os
 
-st.set_page_config(page_title="🏙️ Serdal Grouped Real Estate Advisor", layout="wide")
-st.title("🏙️ Dubai Real Estate Grouped Recommendation Advisor")
+st.set_page_config(page_title="📊 Smart Buy Recommender", layout="wide")
+st.title("🏙️ Dubai Real Estate - Smart Buy Recommender")
 
-# === STEP 1: Load Precomputed Pattern CSV ===
+# =====================
+# Load Dataset
+# =====================
 @st.cache_data
-
 def load_data():
-    url = "https://raw.githubusercontent.com/Tariq-qazi/Insights/main/PatternTaggedDatabase.csv"
-    df = pd.read_csv(url)
-    df = df.dropna(subset=["PatternID"])
+    path = "pattern_tagged_data.csv"
+    if not os.path.exists(path):
+        gdown.download("https://drive.google.com/uc?id=1ZPTeDNj_7Dg9R5cysYF_6RZtaHOD6WxZ", path, quiet=False)
+    df = pd.read_csv(path, parse_dates=["Quarter"])
     return df
 
-# === STEP 2: Define Grouping Logic for PatternID Sets ===
-pattern_groups = {
-    "✅ Strong Buy Zones": {
-        "patterns": ["P001", "P050", "P051", "P052", "P053"],
-        "summary": "These areas show strong alignment across price, volume, and off-plan confidence. Best suited for immediate action."
-    },
-    "📈 Emerging Opportunity": {
-        "patterns": ["P030", "P033", "P034", "P048"],
-        "summary": "Market signals are forming or volume is recovering. Early entry could pay off — but requires active tracking."
-    },
-    "🕰️ Watchlist Zones": {
-        "patterns": ["P032", "P038", "P054", "P057", "P060"],
-        "summary": "Not a time to enter. These zones show early or unclear momentum. Keep an eye but don’t commit yet."
-    },
-    "⚠️ Caution Required": {
-        "patterns": ["P031", "P035", "P041", "P044", "P055"],
-        "summary": "These areas may seem attractive but have underlying weaknesses — either in volume, demand, or exit liquidity."
-    },
-    "❌ Avoid Zones": {
-        "patterns": ["P036", "P046", "P056", "P063"],
-        "summary": "Dead or artificial zones — no healthy activity or unsafe entry conditions. Capital should be deployed elsewhere."
-    },
-    "🔄 Transitional Zones": {
-        "patterns": ["P039", "P040", "P042", "P043"],
-        "summary": "Mixed signals — may be heading toward growth or decline. Decisions should be context-specific and cautious."
-    }
-}
+# =====================
+# Pattern Buckets Mapping
+# =====================
+def assign_bucket(pattern_id):
+    p = int(pattern_id.replace("P", ""))
+    if p in [1, 50, 51, 52, 53]: return "🟢 Strong Buy"
+    elif p in range(2,6) or p in range(30,35) or p in [38, 39, 40]: return "🟡 Cautious Buy / Watch"
+    elif p in range(6,11) or p in [32, 41, 54, 55, 56, 57]: return "🟠 Hold / Neutral"
+    elif p in range(11,16) or p in range(35,38) or p in range(43,50) or p in range(58,64): return "🔴 Caution / Avoid"
+    elif p in range(16,21) or p in [42, 44, 60, 61]: return "🔁 Rotation Candidate"
+    elif p in range(21,30) or p in [62]: return "🧭 Strategic Waitlist"
+    else: return "❓ Unclassified"
 
-# === STEP 3: Sidebar Filters ===
-st.sidebar.header("🔍 Filter Your Preferences")
-room_options = ["Studio", "1BR", "2BR", "3BR", "4BR+"]
-selected_room = st.sidebar.selectbox("Bedrooms", room_options)
-unit_type = st.sidebar.selectbox("Unit Type", ["Apartment", "Villa", "Townhouse"])
-budget = st.sidebar.number_input("Max Budget (AED)", value=3000000, step=100000)
+# =====================
+# Sidebar Filters
+# =====================
+df = load_data()
+df["PatternBucket"] = df["PatternID"].apply(assign_bucket)
 
-submit = st.sidebar.button("Find Zones")
+st.sidebar.header("🎯 Filter Options")
+all_unit_types = sorted(df["property_type_en"].dropna().unique())
+all_room_counts = sorted(df["rooms_en"].dropna().unique())
 
-# === STEP 4: Main Logic ===
-if submit:
-    df = load_data()
-    
-    # Apply filters
-    filtered = df[
-        (df["rooms_en"] == selected_room) &
-        (df["property_type_en"] == unit_type) &
-        (df["actual_worth"] <= budget)
-    ]
+selected_type = st.sidebar.selectbox("Unit Type", options=all_unit_types)
+selected_rooms = st.sidebar.selectbox("Bedrooms", options=all_room_counts)
+max_budget = st.sidebar.number_input("Max Budget (AED)", value=2_000_000, step=100_000)
 
-    if filtered.empty:
-        st.warning("❌ No matching areas found for the selected filters.")
-    else:
-        st.success(f"✅ {len(filtered)} matching transactions found.")
+# =====================
+# Filter Data
+# =====================
+filtered = df[
+    (df["property_type_en"] == selected_type) &
+    (df["rooms_en"] == selected_rooms) &
+    (df["actual_worth"] <= max_budget)
+]
 
-        # Assign group
-        grouped = []
-        for group, content in pattern_groups.items():
-            matches = filtered[filtered["PatternID"].isin(content["patterns"])]
-            if not matches.empty:
-                area_counts = matches["area_name_en"].value_counts().reset_index()
-                area_counts.columns = ["Area", "Matches"]
-                grouped.append((group, content["summary"], area_counts))
+latest_quarter = filtered["Quarter"].max()
+latest = filtered[filtered["Quarter"] == latest_quarter]
 
-        for group_name, summary, df_area in grouped:
-            st.markdown(f"### {group_name}")
-            st.markdown(f"*{summary}*")
-            st.dataframe(df_area)
+st.subheader(f"📅 Recommendations for {selected_rooms} BR {selected_type} (Q{latest_quarter.quarter}/ {latest_quarter.year})")
+st.caption(f"Showing zones within your budget — grouped by pattern intelligence bucket")
 
-else:
-    st.info("🎯 Select your filters and press 'Find Zones' to start.")
+# =====================
+# Grouped Output
+# =====================
+for bucket in ["🟢 Strong Buy", "🟡 Cautious Buy / Watch", "🧭 Strategic Waitlist", "🔁 Rotation Candidate", "🟠 Hold / Neutral", "🔴 Caution / Avoid"]:
+    sub = latest[latest["PatternBucket"] == bucket]
+    if not sub.empty:
+        top = sub.sort_values("actual_worth").groupby("area_name_en").first().reset_index()
+        top = top.sort_values("actual_worth").head(10)
+        with st.expander(f"{bucket} — Top {len(top)} Areas"):
+            st.dataframe(top[["area_name_en", "actual_worth", "PatternID", "PatternBucket"]], use_container_width=True)
+            fig = px.bar(top, x="area_name_en", y="actual_worth", title=f"{bucket} — Top Affordables", text_auto=True)
+            st.plotly_chart(fig, use_container_width=True)
+
+# =====================
+# Footer
+# =====================
+st.markdown("""
+---
+Built with ❤️ using pattern intelligence. Want to explore more patterns or areas? [Contact us](mailto:info@serdal.ai)
+""")

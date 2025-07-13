@@ -1,59 +1,84 @@
+# Updated app.py for the Grouped Recommendation Version
+
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import gdown
+import os
 
-st.set_page_config(page_title="🏙️ Real Estate Grouped Recommendations", layout="wide")
-st.title("🏙️ Real Estate Recommendation Explorer")
+st.set_page_config(page_title="Grouped Area Recommendation", layout="wide")
+st.title("🏘️ Dubai Real Estate – Smart Buy Groups")
 
-# ============
-# Load Data
-# ============
+# Load filtered metadata
 @st.cache_data
-def load_data():
-    tagged = pd.read_csv("batch_tagged_output.csv")
-    matrix = pd.read_csv("PatternMatrix_with_Buckets.csv")
-    matrix = matrix.rename(columns={"Bucket": "Pattern_Bucket"})  # Normalize column
-    merged = pd.merge(tagged, matrix[["PatternID", "Pattern_Bucket"]], on="PatternID", how="left")
-    return merged
+def get_filter_metadata():
+    file_path = "transactions.parquet"
+    if not os.path.exists(file_path):
+        gdown.download("https://drive.google.com/uc?id=15kO9WvSnWbY4l9lpHwPYRhDmrwuiDjoI", file_path, quiet=False)
+    df = pd.read_parquet(file_path, columns=["area_name_en", "property_type_en", "rooms_en", "actual_worth"])
+    return {
+        "areas": sorted(df["area_name_en"].dropna().unique()),
+        "types": sorted(df["property_type_en"].dropna().unique()),
+        "rooms": sorted(df["rooms_en"].dropna().unique()),
+        "min_price": int(df["actual_worth"].min()),
+        "max_price": int(df["actual_worth"].max())
+    }
 
-df = load_data()
+filters = get_filter_metadata()
 
-# =================
-# Sidebar Filters
-# =================
-st.sidebar.header("🔍 Filters")
+# Sidebar filters
+st.sidebar.header("🔍 Choose Buyer Criteria")
+with st.sidebar.form("filter_form"):
+    unit_type = st.selectbox("Unit Type", filters["types"])
+    room_count = st.selectbox("Bedrooms", filters["rooms"])
+    budget = st.number_input("Max Budget (AED)", value=filters["max_price"], step=100000)
+    view_mode = st.radio("Insights For", ["Investor", "EndUser"])
+    submitted = st.form_submit_button("Get Area Picks")
 
-all_unit_types = df["UnitType"].dropna().unique().tolist()
-unit_type = st.sidebar.selectbox("Unit Type", ["All"] + sorted(all_unit_types))
+# Load pattern matrix with bucket
+@st.cache_data
+def load_matrix():
+    df = pd.read_csv("PatternMatrix_with_Buckets.csv")
+    for col in ["Insight_Investor", "Recommendation_Investor", "Insight_EndUser", "Recommendation_EndUser"]:
+        df[col] = df[col].astype(str).apply(lambda x: x.replace("\\n", "\n"))
+    return df
 
-all_rooms = df["Rooms"].dropna().unique().tolist()
-room = st.sidebar.selectbox("Bedrooms", ["All"] + sorted(all_rooms))
+pattern_df = load_matrix()
 
-budget = st.sidebar.number_input("Max Budget (AED)", value=5_000_000, step=100_000)
+# Load area patterns file
+@st.cache_data
+def load_area_patterns():
+    df = pd.read_csv("Grouped_Area_Patterns.csv")
+    return df
 
-run = st.sidebar.button("Run Analysis")
+area_data = load_area_patterns()
 
-# ======================
-# Main Recommendation
-# ======================
-if run:
-    df_filtered = df.copy()
-    if unit_type != "All":
-        df_filtered = df_filtered[df_filtered["UnitType"] == unit_type]
-    if room != "All":
-        df_filtered = df_filtered[df_filtered["Rooms"] == room]
-    df_filtered = df_filtered[df_filtered["Price_AED"] <= budget]
+# Filter by unit type, room, budget
+if submitted:
+    matched = area_data[
+        (area_data["unit_type"] == unit_type) &
+        (area_data["bedrooms"] == room_count) &
+        (area_data["avg_price"] <= budget)
+    ]
 
-    st.success(f"✅ {len(df_filtered)} matching entries found.")
+    if matched.empty:
+        st.warning("❌ No matching zones found within your criteria.")
+    else:
+        st.success(f"✅ {len(matched)} zones matched your filters.")
 
-    grouped = df_filtered.groupby("Pattern_Bucket")
+        # Group by bucket
+        grouped = matched.groupby("Bucket")
+        for bucket, group in grouped:
+            st.subheader(f"{bucket} ({len(group)} zones)")
 
-    for bucket, group in grouped:
-        st.subheader(f"{bucket} — {len(group)} options")
-        top_areas = group.groupby("Area").size().sort_values(ascending=False).head(10).reset_index()
-        top_areas.columns = ["Area", "Matches"]
-        st.write(top_areas)
+            top = group.sort_values("avg_price").head(10)
+            st.markdown("**Top Recommendations:**")
+            st.table(top[["area", "avg_price", "pattern_id"]])
 
-        with st.expander("View Full Table"):
-            st.dataframe(group.sort_values("Price_AED").reset_index(drop=True))
+            sample_pid = top.iloc[0]["pattern_id"]
+            p_row = pattern_df[pattern_df["PatternID"] == sample_pid].iloc[0]
+            st.markdown(f"**Representative Insight ({view_mode}):**\n\n" + p_row[f"Insight_{view_mode}"])
+            st.markdown(f"**Recommendation ({view_mode}):**\n\n" + p_row[f"Recommendation_{view_mode}"])
+
 else:
-    st.info("🎯 Select filters and click **Run Analysis** to begin.")
+    st.info("🎯 Select filters and click 'Get Area Picks' to explore opportunities.")
